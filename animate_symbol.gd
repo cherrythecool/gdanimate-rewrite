@@ -1,5 +1,5 @@
 @tool
-@icon("res://addons/gdanimate/symbol.svg")
+@icon("symbol.svg")
 extends Node2D
 class_name AnimateSymbol
 
