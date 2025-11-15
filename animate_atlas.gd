@@ -31,6 +31,10 @@ func get_framerate() -> float:
 	return 24.0
 
 
+func get_filename() -> String:
+	return "Unknown"
+
+
 func wants_redraw() -> bool:
 	var prev: bool = ask_redraw
 	ask_redraw = false

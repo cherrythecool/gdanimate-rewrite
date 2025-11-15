@@ -19,8 +19,6 @@ class_name AdobeAtlas
 @export_storage var stage_symbol: StringName = &""
 @export_storage var stage_transform: Transform2D = Transform2D.IDENTITY
 
-var all_canvas_items: Array[RID] = []
-
 
 func parse() -> void:
 	super()
@@ -58,12 +56,6 @@ func cache() -> void:
 
 func clean() -> void:
 	super()
-	
-	for rid: RID in all_canvas_items:
-		if rid.is_valid():
-			RenderingServer.canvas_item_clear(rid)
-			RenderingServer.free_rid(rid)
-	all_canvas_items.clear()
 
 
 func draw_on(canvas_item: RID, draw_info: AnimateDrawInfo) -> void:
@@ -80,11 +72,21 @@ func draw_on(canvas_item: RID, draw_info: AnimateDrawInfo) -> void:
 	if use_stage and stage_transform != Transform2D.IDENTITY:
 		transform *= stage_transform
 	
-	_draw_symbol(symbols[key], transform, canvas_item, draw_info.frame, false)
+	_draw_symbol(symbols[key],
+				canvas_item,
+				Transform2D.IDENTITY,
+				draw_info.frame,
+				false,
+				draw_info.items
+	)
 
 
 func get_framerate() -> float:
 	return framerate
+
+
+func get_filename() -> String:
+	return folder_path.get_base_dir().get_file()
 
 
 func get_symbols() -> String:
@@ -94,7 +96,7 @@ func get_symbols() -> String:
 	if not string.is_empty():
 		string.remove_char(string.length() - 1)
 	
-	return string
+	return ("" if string.is_empty() else " ,") + string
 
 
 func get_length_of(symbol: StringName) -> int:
@@ -115,38 +117,40 @@ static func get_layer_path(layers: Array[String], id: int) -> String:
 	return value
 
 
-func _draw_symbol(target: AdobeSymbol, transform: Transform2D, parent: RID, frame: int, is_clipper: bool) -> void:
-	var last_clip: RID = RID()
+func _draw_symbol(target: AdobeSymbol, parent: RID,
+				t: Transform2D, frame: int,
+				is_clipper: bool, items: Array[RID]) -> void:
 	var index: int = target.layers.size()
 	if frame > target.length - 1:
 		frame = target.length - 1
 	
+	var to_push: Array[RID] = []
+	var clip_pushes: Dictionary[StringName, Array] = {}
+	var rids: Dictionary[StringName, RID] = {}
 	for layer: AdobeLayer in target.layers:
 		index -= 1
 		
-		var rid: RID
-		if is_clipper:
-			rid = parent
+		var layer_rid: RID
+		if not is_clipper:
+			layer_rid = RenderingServer.canvas_item_create()
+			items.push_back(layer_rid)
+			rids.set(layer.name, layer_rid)
+			
+			var layer_parent: RID = parent
+			if not is_clipper:
+				if layer.clipping:
+					RenderingServer.canvas_item_set_canvas_group_mode(layer_rid, RenderingServer.CANVAS_GROUP_MODE_CLIP_ONLY)
+				elif not layer.clipped_by.is_empty():
+					if not clip_pushes.has(layer.clipped_by):
+						clip_pushes.set(layer.clipped_by, [])
+					
+					clip_pushes[layer.clipped_by].push_front(layer_rid)
+					layer_parent = rids.get(layer.clipped_by, parent)
+			
+			if layer_parent == parent:
+				to_push.push_front(layer_rid)
 		else:
-			rid = RenderingServer.canvas_item_create()
-			all_canvas_items.push_back(rid)
-			
-			if (not layer.clipped_by.is_empty()) and last_clip.is_valid():
-				RenderingServer.canvas_item_set_parent(rid, last_clip)
-			else:
-				RenderingServer.canvas_item_set_parent(rid, parent)
-			
-			if layer.clipping:
-				RenderingServer.canvas_item_set_canvas_group_mode(rid, RenderingServer.CANVAS_GROUP_MODE_CLIP_ONLY)
-				last_clip = rid
-			
-			# TODO: FIX THE FUCKING MASKING!!!
-			# NOTE: We're rendering all masked layers in reverse right now.
-			# This, FOR SOME REASON, works, but means the "correct" draw order
-			# (Which so awesomely doesn't work sometimes, lol! Which means
-			# we should probably go back to reversed lists.) Makes the thing
-			# not work anyways.
-			RenderingServer.canvas_item_set_draw_index(rid, index)
+			layer_rid = parent
 		
 		for layer_frame: AdobeLayerFrame in layer.frames:
 			if frame > layer_frame.starting_index + layer_frame.duration - 1:
@@ -158,27 +162,38 @@ func _draw_symbol(target: AdobeSymbol, transform: Transform2D, parent: RID, fram
 				if element is AdobeSymbolInstance:
 					_draw_symbol(
 						symbols[element.key],
-						transform * element.transform,
-						rid,
+						layer_rid,
+						t * element.transform,
 						element.first_frame,
-						is_clipper or layer.clipping
+						is_clipper or layer.clipping,
+						items
 					)
 				elif element is AdobeAtlasSprite:
 					_draw_atlas_sprite(
 						element as AdobeAtlasSprite,
-						rid,
-						transform
+						layer_rid,
+						t
 					)
+	
+	for item: RID in to_push:
+		RenderingServer.canvas_item_set_parent(item, parent)
+	for key: StringName in clip_pushes.keys():
+		var array: Array = clip_pushes[key]
+		var clip_parent: RID = rids[key]
+		
+		for item: RID in array:
+			RenderingServer.canvas_item_set_parent(item, clip_parent)
 
-func _draw_atlas_sprite(sprite: AdobeAtlasSprite, parent: RID, previous_transform: Transform2D) -> void:
-	previous_transform *= sprite.transform
+
+func _draw_atlas_sprite(sprite: AdobeAtlasSprite, parent: RID, t: Transform2D) -> void:
+	var transform: Transform2D = t * sprite.transform
 	if sprite.rotated:
-		previous_transform *= Transform2D(
+		transform *= Transform2D(
 			-PI / 2.0, #deg_to_rad(-90.0),
 			Vector2(0.0, sprite.region.size.x)
 		)
 	
-	RenderingServer.canvas_item_add_set_transform(parent, previous_transform)
+	RenderingServer.canvas_item_add_set_transform(parent, transform)
 	RenderingServer.canvas_item_add_texture_rect_region(
 		parent,
 		Rect2(Vector2.ZERO, Vector2(sprite.region.size)),

@@ -12,6 +12,13 @@ class_name AnimateSymbol
 
 @export var frame: int = 0:
 	set(value):
+		if atlases.is_empty():
+			if frame != value:
+				queue_redraw()
+			
+			frame = value
+			return
+		
 		var length: int = get_animation_length()
 		value = _validate_frame(value, length)
 		if frame != value:
@@ -56,10 +63,14 @@ class_name AnimateSymbol
 		value %= atlases.size()
 
 		if atlas_index != value:
+			notify_property_list_changed()
 			queue_redraw()
 		atlas_index = value
+@export_tool_button("Reparse Current", "Reload") var atlas_reload: Callable = reparse_current
 
 var frame_timer: float = 0.0
+
+var internal_canvas_items: Array[RID] = []
 
 
 func _validate_property(property: Dictionary) -> void:
@@ -75,6 +86,23 @@ func _validate_property(property: Dictionary) -> void:
 		if atlas is AdobeAtlas:
 			property.hint = PROPERTY_HINT_ENUM
 			property.hint_string = atlas.get_symbols()
+		elif atlas is SparrowAtlas:
+			if atlas.symbols.is_empty():
+				return
+			
+			property.hint = PROPERTY_HINT_ENUM
+			property.hint_string = atlas.get_symbols()
+
+	if property.name == "atlas_index":
+		property.hint = PROPERTY_HINT_ENUM
+		property.hint_string = ""
+		
+		for i: int in atlases.size():
+			var atlas: AnimateAtlas = atlases[i]
+			property.hint_string += "#%d - %s" % [i, atlas.get_filename()]
+			
+			if i != atlases.size() - 1:
+				property.hint_string += ","
 
 
 func _ready() -> void:
@@ -106,6 +134,7 @@ func _process(delta: float) -> void:
 		return
 	if atlas.wants_redraw():
 		frame = frame
+		notify_property_list_changed()
 		queue_redraw()
 	
 	if not playing:
@@ -123,6 +152,16 @@ func _notification(what: int) -> void:
 		queue_redraw()
 
 
+func reparse_current() -> void:
+	if atlases.is_empty():
+		return
+	var atlas: AnimateAtlas = atlases[atlas_index]
+	if not is_instance_valid(atlas):
+		return
+	atlas.parse()
+	queue_redraw()
+
+
 func _draw() -> void:
 	if atlases.is_empty():
 		return
@@ -133,6 +172,10 @@ func _draw() -> void:
 	if not is_instance_valid(atlas):
 		return
 
+	for rid: RID in internal_canvas_items:
+		RenderingServer.free_rid(rid)
+	internal_canvas_items.clear()
+	
 	match atlas.format:
 		"sparrow":
 			_draw_sparrow(atlas as SparrowAtlas)
@@ -170,6 +213,9 @@ func _draw_sparrow(atlas: SparrowAtlas) -> void:
 		return
 
 	var sparrow_frame: SparrowFrame = atlas.get_frame_filtered(frame, symbol)
+	if not is_instance_valid(sparrow_frame):
+		return
+	
 	var draw_offset: Vector2 = offset
 	if centered:
 		if sparrow_frame.offset.size != Vector2i.ZERO:
@@ -196,6 +242,7 @@ func _draw_adobe(atlas: AdobeAtlas) -> void:
 			symbol,
 			frame,
 			offset,
-			get_transform()
+			get_transform(),
+			internal_canvas_items
 		)
 	)
