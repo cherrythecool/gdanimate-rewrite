@@ -54,10 +54,6 @@ class_name AnimateSymbol
 @export var atlases: Array[AnimateAtlas] = []
 @export var atlas_index: int = 0:
 	set(value):
-		# TODO: maybe find a better solution, but this works for now!
-		for atlas: AnimateAtlas in atlases:
-			atlas.clean()
-		
 		if value < 0:
 			value = absi(value)
 		value %= atlases.size()
@@ -69,7 +65,6 @@ class_name AnimateSymbol
 @export_tool_button("Reparse Current", "Reload") var atlas_reload: Callable = reparse_current
 
 var frame_timer: float = 0.0
-
 var internal_canvas_items: Array[RID] = []
 
 
@@ -99,6 +94,10 @@ func _validate_property(property: Dictionary) -> void:
 		
 		for i: int in atlases.size():
 			var atlas: AnimateAtlas = atlases[i]
+			if not is_instance_valid(atlas):
+				property.hint_string += "#%d - null" % [i]
+				continue
+			
 			property.hint_string += "#%d - %s" % [i, atlas.get_filename()]
 			
 			if i != atlases.size() - 1:
@@ -163,6 +162,11 @@ func reparse_current() -> void:
 
 
 func _draw() -> void:
+	RenderingServer.canvas_item_clear(get_canvas_item())
+	for rid: RID in internal_canvas_items:
+		RenderingServer.free_rid(rid)
+	internal_canvas_items.clear()
+	
 	if atlases.is_empty():
 		return
 	if atlas_index > atlases.size() - 1:
@@ -171,10 +175,6 @@ func _draw() -> void:
 	var atlas: AnimateAtlas = atlases[atlas_index]
 	if not is_instance_valid(atlas):
 		return
-
-	for rid: RID in internal_canvas_items:
-		RenderingServer.free_rid(rid)
-	internal_canvas_items.clear()
 	
 	match atlas.format:
 		"sparrow":
@@ -223,7 +223,6 @@ func _draw_sparrow(atlas: SparrowAtlas) -> void:
 		else:
 			draw_offset -= sparrow_frame.region.size / 2.0
 
-	RenderingServer.canvas_item_clear(get_canvas_item())
 	atlas.draw_on(get_canvas_item(), 
 		AnimateDrawInfo.new(
 			symbol,
@@ -235,7 +234,6 @@ func _draw_sparrow(atlas: SparrowAtlas) -> void:
 
 
 func _draw_adobe(atlas: AdobeAtlas) -> void:
-	RenderingServer.canvas_item_clear(get_canvas_item())
 	RenderingServer.canvas_item_set_transform(get_canvas_item(), get_transform())
 	atlas.draw_on(get_canvas_item(),
 		AnimateDrawInfo.new(

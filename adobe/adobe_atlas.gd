@@ -54,13 +54,8 @@ func cache() -> void:
 	ResourceSaver.save(self, "%s/Animation.res" % [basename], ResourceSaver.FLAG_COMPRESS)
 
 
-func clean() -> void:
-	super()
-
-
 func draw_on(canvas_item: RID, draw_info: AnimateDrawInfo) -> void:
 	super(canvas_item, draw_info)
-	clean()
 	
 	if stage_symbol.is_empty():
 		return
@@ -72,12 +67,18 @@ func draw_on(canvas_item: RID, draw_info: AnimateDrawInfo) -> void:
 	if use_stage and stage_transform != Transform2D.IDENTITY:
 		transform *= stage_transform
 	
+	var stage_item: RID = RenderingServer.canvas_item_create()
+	draw_info.items.push_back(stage_item)
+	RenderingServer.canvas_item_set_transform(stage_item, transform)
+	RenderingServer.canvas_item_set_parent(stage_item, canvas_item)
+	RenderingServer.canvas_item_set_draw_behind_parent(stage_item, true)
+	
 	_draw_symbol(symbols[key],
-				canvas_item,
-				Transform2D.IDENTITY,
-				draw_info.frame,
-				false,
-				draw_info.items
+		stage_item,
+		Transform2D.IDENTITY,
+		draw_info.frame,
+		false,
+		draw_info.items
 	)
 
 
@@ -120,7 +121,6 @@ static func get_layer_path(layers: Array[String], id: int) -> String:
 func _draw_symbol(target: AdobeSymbol, parent: RID,
 				t: Transform2D, frame: int,
 				is_clipper: bool, items: Array[RID]) -> void:
-	var index: int = target.layers.size()
 	if frame > target.length - 1:
 		frame = target.length - 1
 	
@@ -128,36 +128,31 @@ func _draw_symbol(target: AdobeSymbol, parent: RID,
 	var clip_pushes: Dictionary[StringName, Array] = {}
 	var rids: Dictionary[StringName, RID] = {}
 	for layer: AdobeLayer in target.layers:
-		index -= 1
-		
 		var layer_rid: RID
+		var layer_parent: RID = parent
 		if not is_clipper:
 			layer_rid = RenderingServer.canvas_item_create()
-			items.push_back(layer_rid)
 			rids.set(layer.name, layer_rid)
 			
-			var layer_parent: RID = parent
-			if not is_clipper:
-				if layer.clipping:
-					RenderingServer.canvas_item_set_canvas_group_mode(layer_rid, RenderingServer.CANVAS_GROUP_MODE_CLIP_ONLY)
-				elif not layer.clipped_by.is_empty():
-					if not clip_pushes.has(layer.clipped_by):
-						clip_pushes.set(layer.clipped_by, [])
-					
-					clip_pushes[layer.clipped_by].push_front(layer_rid)
-					layer_parent = rids.get(layer.clipped_by, parent)
-			
-			if layer_parent == parent:
-				to_push.push_front(layer_rid)
+			if layer.clipping:
+				RenderingServer.canvas_item_set_canvas_group_mode(layer_rid, RenderingServer.CANVAS_GROUP_MODE_CLIP_ONLY)
+			elif not layer.clipped_by.is_empty():
+				if not clip_pushes.has(layer.clipped_by):
+					clip_pushes.set(layer.clipped_by, [])
+				
+				clip_pushes[layer.clipped_by].push_front(layer_rid)
+				layer_parent = rids.get(layer.clipped_by, parent)
 		else:
 			layer_rid = parent
 		
+		var rendered: bool = false
 		for layer_frame: AdobeLayerFrame in layer.frames:
 			if frame > layer_frame.starting_index + layer_frame.duration - 1:
 				continue
 			if frame < layer_frame.starting_index:
 				continue
 			
+			rendered = true
 			for element: AdobeDrawable in layer_frame.elements:
 				if element is AdobeSymbolInstance:
 					_draw_symbol(
@@ -174,14 +169,22 @@ func _draw_symbol(target: AdobeSymbol, parent: RID,
 						layer_rid,
 						t
 					)
+		
+		if rendered and (not is_clipper) and layer_parent == parent:
+			to_push.push_front(layer_rid)
 	
+	var i: int = 0
 	for item: RID in to_push:
+		items.push_back(item)
 		RenderingServer.canvas_item_set_parent(item, parent)
+		RenderingServer.canvas_item_set_draw_index(item, i)
+		i += 1
 	for key: StringName in clip_pushes.keys():
 		var array: Array = clip_pushes[key]
 		var clip_parent: RID = rids[key]
 		
 		for item: RID in array:
+			items.push_back(item)
 			RenderingServer.canvas_item_set_parent(item, clip_parent)
 
 

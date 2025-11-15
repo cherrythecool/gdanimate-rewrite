@@ -11,10 +11,6 @@ class_name AnimateAtlas
 var ask_redraw: bool = true
 
 
-func free() -> void:
-	clean()
-
-
 func parse() -> void:
 	ask_redraw = true
 
@@ -39,7 +35,3 @@ func wants_redraw() -> bool:
 	var prev: bool = ask_redraw
 	ask_redraw = false
 	return prev
-
-
-func clean() -> void:
-	pass
