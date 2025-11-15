@@ -56,7 +56,8 @@ class_name AnimateSymbol
 	set(value):
 		if value < 0:
 			value = absi(value)
-		value %= atlases.size()
+		if not atlases.is_empty():
+			value %= atlases.size()
 
 		if atlas_index != value:
 			notify_property_list_changed()
@@ -66,6 +67,7 @@ class_name AnimateSymbol
 
 var frame_timer: float = 0.0
 var internal_canvas_items: Array[RID] = []
+var last_atlases_size: int = 0
 
 
 func _validate_property(property: Dictionary) -> void:
@@ -126,6 +128,10 @@ func _validate_frame(value: int, length: int = -1) -> int:
 
 
 func _process(delta: float) -> void:
+	if atlases.size() != last_atlases_size:
+		last_atlases_size = atlases.size()
+		notify_property_list_changed()
+	
 	if atlases.is_empty():
 		return
 	var atlas: AnimateAtlas = atlases[atlas_index]

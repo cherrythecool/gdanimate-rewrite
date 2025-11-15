@@ -28,12 +28,13 @@ func parse() -> void:
 	var cache_path: String = "%s/Animation.res" % [base_dir]
 	if ResourceLoader.exists(cache_path):
 		var cached: AdobeAtlas = load(cache_path)
-		spritemap = cached.spritemap
-		symbols = cached.symbols
-		framerate = cached.framerate
-		stage_symbol = cached.stage_symbol
-		stage_transform = cached.stage_transform
-		return
+		if is_instance_valid(cached):
+			spritemap = cached.spritemap
+			symbols = cached.symbols
+			framerate = cached.framerate
+			stage_symbol = cached.stage_symbol
+			stage_transform = cached.stage_transform
+			return
 	
 	spritemap.clear()
 	symbols.clear()
