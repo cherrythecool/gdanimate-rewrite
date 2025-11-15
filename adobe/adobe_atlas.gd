@@ -3,8 +3,9 @@ extends AnimateAtlas
 class_name AdobeAtlas
 
 
-## Path to any file in the animation path (like Animation.json, spritemap1.json, etc).
-@export_file_path("*.json") var folder_path: String = "":
+## Path to any file in the animation path (like Animation.json, spritemap1.json, etc),
+## or the folder that contains those files.
+@export_dir var folder_path: String = "":
 	set(v):
 		folder_path = v
 		parse()
@@ -73,6 +74,7 @@ func draw_on(canvas_item: RID, draw_info: AnimateDrawInfo) -> void:
 	RenderingServer.canvas_item_set_transform(stage_item, transform)
 	RenderingServer.canvas_item_set_parent(stage_item, canvas_item)
 	RenderingServer.canvas_item_set_draw_behind_parent(stage_item, true)
+	RenderingServer.canvas_item_set_use_parent_material(stage_item, true)
 	
 	_draw_symbol(symbols[key],
 		stage_item,
@@ -133,6 +135,7 @@ func _draw_symbol(target: AdobeSymbol, parent: RID,
 		var layer_parent: RID = parent
 		if not is_clipper:
 			layer_rid = RenderingServer.canvas_item_create()
+			RenderingServer.canvas_item_set_use_parent_material(layer_rid, true)
 			rids.set(layer.name, layer_rid)
 			
 			if layer.clipping:
@@ -174,19 +177,23 @@ func _draw_symbol(target: AdobeSymbol, parent: RID,
 		if rendered and (not is_clipper) and layer_parent == parent:
 			to_push.push_front(layer_rid)
 	
-	var i: int = 0
+	var i: int = items.size() - 1
 	for item: RID in to_push:
 		items.push_back(item)
 		RenderingServer.canvas_item_set_parent(item, parent)
 		RenderingServer.canvas_item_set_draw_index(item, i)
 		i += 1
+	
 	for key: StringName in clip_pushes.keys():
 		var array: Array = clip_pushes[key]
 		var clip_parent: RID = rids[key]
 		
+		i = items.size() - 1
 		for item: RID in array:
 			items.push_back(item)
 			RenderingServer.canvas_item_set_parent(item, clip_parent)
+			RenderingServer.canvas_item_set_draw_index(item, i)
+			i += 1
 
 
 func _draw_atlas_sprite(sprite: AdobeAtlasSprite, parent: RID, t: Transform2D) -> void:
@@ -407,6 +414,9 @@ func _load_atlas_sprite(optimized: bool, element: Dictionary) -> AdobeAtlasSprit
 
 
 func _parse_matrix(matrix: Variant) -> Transform2D:
+	if matrix == null:
+		return Transform2D.IDENTITY
+	
 	if matrix is Dictionary:
 		return Transform2D(
 			Vector2(matrix["m00"], matrix["m01"]),

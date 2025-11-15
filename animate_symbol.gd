@@ -134,6 +134,8 @@ func _process(delta: float) -> void:
 	
 	if atlases.is_empty():
 		return
+	if atlas_index > atlases.size() - 1:
+		atlas_index = atlases.size() - 1
 	var atlas: AnimateAtlas = atlases[atlas_index]
 	if not is_instance_valid(atlas):
 		return
