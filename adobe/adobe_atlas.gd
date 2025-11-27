@@ -14,11 +14,11 @@ class_name AdobeAtlas
 ## For more like SWF behavior, set to true.
 @export var movie_clips_play: bool = false
 
-@export_storage var spritemap: Dictionary[StringName, AdobeAtlasSprite] = {}
-@export_storage var symbols: Dictionary[StringName, AdobeSymbol] = {}
-@export_storage var framerate: float = 24.0
-@export_storage var stage_symbol: StringName = &""
-@export_storage var stage_transform: Transform2D = Transform2D.IDENTITY
+var spritemap: Dictionary[StringName, AdobeAtlasSprite] = {}
+var symbols: Dictionary[StringName, AdobeSymbol] = {}
+var framerate: float = 24.0
+var stage_symbol: StringName = &""
+var stage_transform: Transform2D = Transform2D.IDENTITY
 
 
 func parse() -> void:
@@ -26,9 +26,9 @@ func parse() -> void:
 	format = "adobe"
 
 	var base_dir: String = folder_path.get_base_dir()
-	var cache_path: String = "%s/Animation.res" % [base_dir]
+	var cache_path: String = "%s/animation_cache.res" % [base_dir]
 	if ResourceLoader.exists(cache_path):
-		var cached: AdobeAtlas = load(cache_path)
+		var cached: AdobeAtlasCached = load(cache_path)
 		if is_instance_valid(cached):
 			spritemap = cached.spritemap
 			symbols = cached.symbols
@@ -53,7 +53,13 @@ func cache() -> void:
 	super()
 
 	var basename: String = folder_path.get_base_dir()
-	ResourceSaver.save(self, "%s/Animation.res" % [basename], ResourceSaver.FLAG_COMPRESS)
+	var cached: AdobeAtlasCached = AdobeAtlasCached.new()
+	cached.spritemap = spritemap
+	cached.symbols = symbols
+	cached.framerate = framerate
+	cached.stage_symbol = stage_symbol
+	cached.stage_transform = stage_transform
+	ResourceSaver.save(cached, "%s/animation_cache.res" % [basename], ResourceSaver.FLAG_COMPRESS)
 
 
 func draw_on(canvas_item: RID, draw_info: AnimateDrawInfo) -> void:
@@ -140,6 +146,7 @@ func _draw_symbol(target: AdobeSymbol, parent: RID,
 			
 			if layer.clipping:
 				RenderingServer.canvas_item_set_canvas_group_mode(layer_rid, RenderingServer.CANVAS_GROUP_MODE_CLIP_ONLY)
+				RenderingServer.canvas_item_set_use_parent_material(layer_rid, false)
 			elif not layer.clipped_by.is_empty():
 				if not clip_pushes.has(layer.clipped_by):
 					clip_pushes.set(layer.clipped_by, [])

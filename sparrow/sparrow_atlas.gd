@@ -165,10 +165,9 @@ func draw_on(canvas_item: RID, draw_info: AnimateDrawInfo) -> void:
 
 	var offset: Vector2 = -sparrow_frame.offset.position
 	offset += draw_info.offset
-	# TODO: refactor into add_set_transform instead?
 	if sparrow_frame.rotated:
-		RenderingServer.canvas_item_set_transform(canvas_item,
-			draw_info.transform * Transform2D(
+		RenderingServer.canvas_item_add_set_transform(canvas_item,
+			Transform2D(
 				-PI / 2.0, #deg_to_rad(-90.0),
 				Vector2(
 					offset.x,
@@ -176,8 +175,6 @@ func draw_on(canvas_item: RID, draw_info: AnimateDrawInfo) -> void:
 				)
 			)
 		)
-	else:
-		RenderingServer.canvas_item_set_transform(canvas_item, draw_info.transform)
 
 	RenderingServer.canvas_item_add_texture_rect_region(canvas_item, 
 		Rect2(

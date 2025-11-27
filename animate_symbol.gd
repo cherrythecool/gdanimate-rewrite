@@ -13,18 +13,15 @@ class_name AnimateSymbol
 @export var frame: int = 0:
 	set(value):
 		if atlases.is_empty():
-			if frame != value:
-				queue_redraw()
-			
+			queue_redraw()
 			frame = value
 			return
 		
 		var length: int = get_animation_length()
-		value = _validate_frame(value, length)
+		value = validate_frame(value, length)
 		if frame != value:
 			queue_redraw()
-
-		frame = value
+			frame = value
 
 @export_range(0.0, 10.0, 0.01, "or_greater") var speed_scale: float = 1.0
 
@@ -106,27 +103,6 @@ func _validate_property(property: Dictionary) -> void:
 				property.hint_string += ","
 
 
-func _ready() -> void:
-	set_notify_local_transform(true)
-
-
-func _validate_frame(value: int, length: int = -1) -> int:
-	if length == -1:
-		length = get_animation_length()
-
-	if value < 0:
-		value = 0
-	if value > length - 1:
-		if loop:
-			value = wrapi(value, 0, length)
-		else:
-			value = clampi(value, 0, length - 1)
-	if length == 0:
-		value = 0
-
-	return value
-
-
 func _process(delta: float) -> void:
 	if atlases.size() != last_atlases_size:
 		last_atlases_size = atlases.size()
@@ -154,11 +130,6 @@ func _process(delta: float) -> void:
 		frame_timer = wrapf(frame_timer, 0.0, 1.0 / fps)
 
 
-func _notification(what: int) -> void:
-	if what == NOTIFICATION_LOCAL_TRANSFORM_CHANGED:
-		queue_redraw()
-
-
 func reparse_current() -> void:
 	if atlases.is_empty():
 		return
@@ -184,13 +155,43 @@ func _draw() -> void:
 	if not is_instance_valid(atlas):
 		return
 	
+	var draw_info: AnimateDrawInfo = AnimateDrawInfo.new(
+		symbol,
+		frame,
+		offset,
+		get_transform(),
+		internal_canvas_items
+	)
+	
 	match atlas.format:
 		"sparrow":
-			_draw_sparrow(atlas as SparrowAtlas)
+			_draw_sparrow(atlas as SparrowAtlas, draw_info)
 		"adobe":
-			_draw_adobe(atlas as AdobeAtlas)
+			_draw_adobe(atlas as AdobeAtlas, draw_info)
 		_:
 			pass
+
+
+func _draw_sparrow(atlas: SparrowAtlas, draw_info: AnimateDrawInfo) -> void:
+	if not is_instance_valid(atlas.texture):
+		return
+	if get_animation_length() == 0:
+		return
+
+	var sparrow_frame: SparrowFrame = atlas.get_frame_filtered(frame, symbol)
+	if not is_instance_valid(sparrow_frame):
+		return
+	
+	if centered:
+		if sparrow_frame.offset.size != Vector2i.ZERO:
+			draw_info.offset -= sparrow_frame.offset.size / 2.0
+		else:
+			draw_info.offset -= sparrow_frame.region.size / 2.0
+	atlas.draw_on(get_canvas_item(), draw_info)
+
+
+func _draw_adobe(atlas: AdobeAtlas, draw_info: AnimateDrawInfo) -> void:
+	atlas.draw_on(get_canvas_item(), draw_info)
 
 
 func get_animation_length() -> int:
@@ -214,41 +215,18 @@ func get_animation_length() -> int:
 	return 0
 
 
-func _draw_sparrow(atlas: SparrowAtlas) -> void:
-	if not is_instance_valid(atlas.texture):
-		return
-	if get_animation_length() == 0:
-		return
+func validate_frame(value: int, length: int = -1) -> int:
+	if length == -1:
+		length = get_animation_length()
 
-	var sparrow_frame: SparrowFrame = atlas.get_frame_filtered(frame, symbol)
-	if not is_instance_valid(sparrow_frame):
-		return
-	
-	var draw_offset: Vector2 = offset
-	if centered:
-		if sparrow_frame.offset.size != Vector2i.ZERO:
-			draw_offset -= sparrow_frame.offset.size / 2.0
+	if value < 0:
+		value = 0
+	if value > length - 1:
+		if loop:
+			value = wrapi(value, 0, length)
 		else:
-			draw_offset -= sparrow_frame.region.size / 2.0
+			value = clampi(value, 0, length - 1)
+	if length == 0:
+		value = 0
 
-	atlas.draw_on(get_canvas_item(), 
-		AnimateDrawInfo.new(
-			symbol,
-			frame,
-			draw_offset,
-			get_transform()
-		)
-	)
-
-
-func _draw_adobe(atlas: AdobeAtlas) -> void:
-	RenderingServer.canvas_item_set_transform(get_canvas_item(), get_transform())
-	atlas.draw_on(get_canvas_item(),
-		AnimateDrawInfo.new(
-			symbol,
-			frame,
-			offset,
-			get_transform(),
-			internal_canvas_items
-		)
-	)
+	return value
