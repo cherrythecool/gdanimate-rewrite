@@ -8,6 +8,9 @@ class_name AdobeSymbolInstance
 @export_storage var loop_mode: AdobeSymbolLoopMode
 @export_storage var transform: Transform2D
 @export_storage var first_frame: int
+@export_storage var filters: Array[AdobeFilter] = []
+@export_storage var blend_mode: AdobeBlendMode = AdobeBlendMode.NORMAL
+@export_storage var color_matrix: AdobeColorMatrix = null
 
 
 func draw_on(parent: RID, frame: int, previous_transform: Transform2D, symbols: Dictionary[StringName, AdobeSymbol], stack: Array[String], id: int) -> void:
@@ -51,4 +54,22 @@ enum AdobeSymbolLoopMode {
 	FREEZE_FRAME,
 	REVERSE_ONE_SHOT,
 	REVERSE_LOOP
+}
+
+enum AdobeBlendMode {
+	ADD = 0,
+	ALPHA = 1,
+	DARKEN = 2,
+	DIFFERENCE = 3,
+	ERASE = 4,
+	HARD_LIGHT = 5,
+	INVERT = 6,
+	LAYER = 7,
+	LIGHTEN = 8,
+	MULTIPLY = 9,
+	NORMAL = 10,
+	OVERLAY = 11,
+	SCREEN = 12,
+	SHADER = 13,
+	SUBTRACT = 14,
 }

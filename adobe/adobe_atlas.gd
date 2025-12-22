@@ -10,9 +10,11 @@ class_name AdobeAtlas
 		folder_path = v
 		parse()
 
-# TODO: Implement
 ## For more like SWF behavior, set to true.
-@export var movie_clips_play: bool = false
+@export var movie_clips_play: bool = false:
+	set(v):
+		movie_clips_play = v
+		ask_redraw = true
 
 var spritemap: Dictionary[StringName, AdobeAtlasSprite] = {}
 var symbols: Dictionary[StringName, AdobeSymbol] = {}
@@ -45,8 +47,8 @@ func parse() -> void:
 		printerr("Atlas path (%s) is missing Animation.json!" % [base_dir])
 		return
 	
-	_load_spritemaps()
-	_load_animation()
+	load_spritemaps()
+	load_animation()
 
 
 func cache() -> void:
@@ -59,7 +61,8 @@ func cache() -> void:
 	cached.framerate = framerate
 	cached.stage_symbol = stage_symbol
 	cached.stage_transform = stage_transform
-	ResourceSaver.save(cached, "%s/animation_cache.res" % [basename], ResourceSaver.FLAG_COMPRESS)
+	cached.take_over_path("%s/animation_cache.res" % [basename])
+	ResourceSaver.save(cached, "%s/animation_cache.res" % [basename], ResourceSaver.FLAG_COMPRESS + ResourceSaver.FLAG_REPLACE_SUBRESOURCE_PATHS)
 
 
 func draw_on(canvas_item: RID, draw_info: AnimateDrawInfo) -> void:
@@ -82,12 +85,15 @@ func draw_on(canvas_item: RID, draw_info: AnimateDrawInfo) -> void:
 	RenderingServer.canvas_item_set_draw_behind_parent(stage_item, true)
 	RenderingServer.canvas_item_set_use_parent_material(stage_item, true)
 	
-	_draw_symbol(symbols[key],
+	draw_symbol(symbols[key],
 		stage_item,
 		Transform2D.IDENTITY,
 		draw_info.frame,
 		false,
-		draw_info.items
+		draw_info.items,
+		AdobeSymbolInstance.AdobeBlendMode.NORMAL,
+		draw_info.material,
+		null,
 	)
 
 
@@ -119,17 +125,12 @@ func get_length_of(symbol: StringName) -> int:
 	return 0
 
 
-static func get_layer_path(layers: Array[String], id: int) -> String:
-	var value: String = ""
-	for layer: String in layers:
-		value += layer
-	value += " {%d}" % [id]
-	return value
-
-
-func _draw_symbol(target: AdobeSymbol, parent: RID,
+func draw_symbol(target: AdobeSymbol, parent: RID,
 				t: Transform2D, frame: int,
-				is_clipper: bool, items: Array[RID]) -> void:
+				is_clipper: bool, items: Array[RID],
+				blend_mode: AdobeSymbolInstance.AdobeBlendMode = AdobeSymbolInstance.AdobeBlendMode.NORMAL,
+				material: Material = null,
+				color_matrix: AdobeColorMatrix = null,) -> void:
 	if frame > target.length - 1:
 		frame = target.length - 1
 	
@@ -163,25 +164,67 @@ func _draw_symbol(target: AdobeSymbol, parent: RID,
 			if frame < layer_frame.starting_index:
 				continue
 			
+			var difference: int = frame - layer_frame.starting_index
 			rendered = true
 			for element: AdobeDrawable in layer_frame.elements:
 				if element is AdobeSymbolInstance:
-					_draw_symbol(
+					var symbol_frame: int = element.first_frame
+					match element.loop_mode:
+						AdobeSymbolInstance.AdobeSymbolLoopMode.LOOP:
+							symbol_frame = wrapi(symbol_frame + difference, 0, symbols[element.key].length)
+						AdobeSymbolInstance.AdobeSymbolLoopMode.ONE_SHOT:
+							symbol_frame = clampi(symbol_frame + difference, 0, symbols[element.key].length - 1)
+						AdobeSymbolInstance.AdobeSymbolLoopMode.FREEZE_FRAME:
+							symbol_frame = symbol_frame
+					if (not movie_clips_play) and element.type == AdobeSymbolInstance.AdobeSymbolType.MOVIE_CLIP:
+						symbol_frame = element.first_frame
+					
+					var next_matrix: AdobeColorMatrix = color_matrix
+					if next_matrix == null:
+						next_matrix = element.color_matrix
+					elif element.color_matrix != null:
+						next_matrix = next_matrix.concat(element.color_matrix)
+					draw_symbol(
 						symbols[element.key],
 						layer_rid,
 						t * element.transform,
-						element.first_frame,
+						symbol_frame,
 						is_clipper or layer.clipping,
-						items
+						items,
+						element.blend_mode,
+						material,
+						next_matrix
 					)
 				elif element is AdobeAtlasSprite:
-					_draw_atlas_sprite(
+					draw_atlas_sprite(
 						element as AdobeAtlasSprite,
 						layer_rid,
-						t
+						t,
 					)
 		
 		if rendered and (not is_clipper) and layer_parent == parent:
+			if is_instance_valid(material):
+				var use_material: bool = blend_mode != AdobeSymbolInstance.AdobeBlendMode.NORMAL
+				if not use_material:
+					use_material = color_matrix != null
+				var used_matrix: AdobeColorMatrix = color_matrix
+				if used_matrix == null:
+					used_matrix = AdobeColorMatrix.new()
+				
+				if use_material:
+					if blend_mode != AdobeSymbolInstance.AdobeBlendMode.NORMAL:
+						# TODO: Optimize the rect here, please it's crapping my perf
+						RenderingServer.canvas_item_set_copy_to_backbuffer(layer_rid, true, Rect2())
+					
+					RenderingServer.canvas_item_set_use_parent_material(layer_rid, false)
+					RenderingServer.canvas_item_set_material(layer_rid, material.get_rid())
+					RenderingServer.canvas_item_set_instance_shader_parameter(layer_rid, &"blend_mode", int(blend_mode))
+					RenderingServer.canvas_item_set_instance_shader_parameter(layer_rid, &"color_multipliers_0", used_matrix.color_multipliers[0])
+					RenderingServer.canvas_item_set_instance_shader_parameter(layer_rid, &"color_multipliers_1", used_matrix.color_multipliers[1])
+					RenderingServer.canvas_item_set_instance_shader_parameter(layer_rid, &"color_multipliers_2", used_matrix.color_multipliers[2])
+					RenderingServer.canvas_item_set_instance_shader_parameter(layer_rid, &"color_multipliers_3", used_matrix.color_multipliers[3])
+					RenderingServer.canvas_item_set_instance_shader_parameter(layer_rid, &"color_offsets", used_matrix.color_offsets)
+			
 			to_push.push_front(layer_rid)
 	
 	var i: int = items.size() - 1
@@ -203,7 +246,7 @@ func _draw_symbol(target: AdobeSymbol, parent: RID,
 			i += 1
 
 
-func _draw_atlas_sprite(sprite: AdobeAtlasSprite, parent: RID, t: Transform2D) -> void:
+func draw_atlas_sprite(sprite: AdobeAtlasSprite, parent: RID, t: Transform2D) -> void:
 	var transform: Transform2D = t * sprite.transform
 	if sprite.rotated:
 		transform *= Transform2D(
@@ -220,7 +263,7 @@ func _draw_atlas_sprite(sprite: AdobeAtlasSprite, parent: RID, t: Transform2D) -
 	)
 
 
-func _load_spritemaps() -> void:
+func load_spritemaps() -> void:
 	var files: PackedStringArray = ResourceLoader.list_directory(folder_path.get_base_dir())
 	for file: String in files:
 		if not file.begins_with("spritemap"):
@@ -228,10 +271,10 @@ func _load_spritemaps() -> void:
 		if not file.get_extension() == "json":
 			continue
 		
-		_load_spritemap(file)
+		load_spritemap(file)
 
 
-func _load_spritemap(spritemap_name: String) -> void:
+func load_spritemap(spritemap_name: String) -> void:
 	var base_dir: String = folder_path.get_base_dir()
 	var raw_json: String = FileAccess.get_file_as_string("%s/%s" % [base_dir, spritemap_name])
 	var json: Variant = JSON.parse_string(raw_json)
@@ -271,7 +314,7 @@ func _load_spritemap(spritemap_name: String) -> void:
 		spritemap.set(StringName(sprite_data.get("name", "")), atlas_sprite)
 
 
-func _load_animation() -> void:
+func load_animation() -> void:
 	var base_dir: String = folder_path.get_base_dir()
 	var raw_json: String = FileAccess.get_file_as_string("%s/Animation.json" % [base_dir])
 	var json: Variant = JSON.parse_string(raw_json)
@@ -282,51 +325,55 @@ func _load_animation() -> void:
 	var data: Dictionary = json as Dictionary
 	var optimized: bool = data.has("AN")
 	
-	var meta: Dictionary = _get_pair(optimized, data, "metadata", "MD")
-	framerate = _get_pair(optimized, meta, "framerate", "FRT")
+	var meta: Dictionary = get_pair(optimized, data, "metadata", "MD")
+	framerate = get_pair(optimized, meta, "framerate", "FRT")
 	
-	var symbol_dict: Dictionary = _get_pair(optimized, data, "SYMBOL_DICTIONARY", "SD")
-	var symbol_array: Array = _get_pair(optimized, symbol_dict, "Symbols", "S")
-	_load_symbols(optimized, symbol_array)
+	var symbol_dict: Dictionary = get_pair(optimized, data, "SYMBOL_DICTIONARY", "SD")
+	var symbol_array: Array = get_pair(optimized, symbol_dict, "Symbols", "S")
+	load_symbols(optimized, symbol_array)
 	
-	var anim: Dictionary = _get_pair(optimized, data, "ANIMATION", "AN")
-	stage_symbol = _get_pair(optimized, anim, "SYMBOL_name", "SN")
-	_load_symbol(optimized, anim)
+	var anim: Dictionary = get_pair(optimized, data, "ANIMATION", "AN")
+	stage_symbol = get_pair(optimized, anim, "SYMBOL_name", "SN")
+	load_symbol(optimized, anim)
 	
-	if _has_pair(optimized, anim, "StageInstance", "STI"):
-		var stage: Dictionary = _get_pair(optimized, anim, "StageInstance", "STI")
-		var instance: Dictionary = _get_pair(optimized, stage, "SYMBOL_Instance", "SI")
-		stage_transform = _parse_matrix(_get_pair(optimized, instance, "Matrix3D", "M3D"))
+	if has_pair(optimized, anim, "StageInstance", "STI"):
+		var stage: Dictionary = get_pair(optimized, anim, "StageInstance", "STI")
+		var instance: Dictionary = get_pair(optimized, stage, "SYMBOL_Instance", "SI")
+		
+		if has_pair(optimized, instance, "Matrix", "MX"):
+			stage_transform = parse_matrix(get_pair(optimized, instance, "Matrix", "MX"))
+		else:
+			stage_transform = parse_matrix(get_pair(optimized, instance, "Matrix3D", "M3D"))
 	else:
 		stage_transform = Transform2D.IDENTITY
 
 
-func _load_symbols(optimized: bool, symbol_array: Array) -> void:
+func load_symbols(optimized: bool, symbol_array: Array) -> void:
 	for symbol: Dictionary in symbol_array:
-		_load_symbol(optimized, symbol)
+		load_symbol(optimized, symbol)
 
 
-func _load_symbol(optimized: bool, symbol: Dictionary) -> void:
-	var key: String = _get_pair(optimized, symbol, "SYMBOL_name", "SN")
+func load_symbol(optimized: bool, symbol: Dictionary) -> void:
+	var key: String = get_pair(optimized, symbol, "SYMBOL_name", "SN")
 	var gd_symbol: AdobeSymbol = AdobeSymbol.new()
 	
-	var timeline: Dictionary = _get_pair(optimized, symbol, "TIMELINE", "TL")
-	var layers: Array = _get_pair(optimized, timeline, "LAYERS", "L")
+	var timeline: Dictionary = get_pair(optimized, symbol, "TIMELINE", "TL")
+	var layers: Array = get_pair(optimized, timeline, "LAYERS", "L")
 	for layer: Dictionary in layers:
 		var gd_layer: AdobeLayer = AdobeLayer.new()
-		gd_layer.name = _get_pair(optimized, layer, "Layer_name", "LN")
-		if _has_pair(optimized, layer, "Layer_type", "LT"):
+		gd_layer.name = get_pair(optimized, layer, "Layer_name", "LN")
+		if has_pair(optimized, layer, "Layer_type", "LT"):
 			if optimized:
 				gd_layer.clipping = layer["LT"] == "Clp"
 			else:
 				gd_layer.clipping = layer["Layer_type"] == "Clipper"
-		if _has_pair(optimized, layer, "Clipped_by", "Clpb"):
-			gd_layer.clipped_by = _get_pair(optimized, layer, "Clipped_by", "Clpb")
+		if has_pair(optimized, layer, "Clipped_by", "Clpb"):
+			gd_layer.clipped_by = get_pair(optimized, layer, "Clipped_by", "Clpb")
 		
 		var duration: int = 0
-		var frames: Array = _get_pair(optimized, layer, "Frames", "FR")
+		var frames: Array = get_pair(optimized, layer, "Frames", "FR")
 		for frame: Dictionary in frames:
-			gd_layer.frames.push_back(_load_frame(optimized, frame))
+			gd_layer.frames.push_back(load_frame(optimized, frame))
 			duration += gd_layer.frames[gd_layer.frames.size() - 1].duration
 		
 		if gd_symbol.length < duration:
@@ -337,36 +384,45 @@ func _load_symbol(optimized: bool, symbol: Dictionary) -> void:
 	symbols[StringName(key)] = gd_symbol
 
 
-func _load_frame(optimized: bool, frame: Dictionary) -> AdobeLayerFrame:
+func load_frame(optimized: bool, frame: Dictionary) -> AdobeLayerFrame:
 	var gd_frame: AdobeLayerFrame = AdobeLayerFrame.new()
-	gd_frame.starting_index = _get_pair(optimized, frame, "index", "I")
-	gd_frame.duration = _get_pair(optimized, frame, "duration", "DU")
+	gd_frame.starting_index = get_pair(optimized, frame, "index", "I")
+	gd_frame.duration = get_pair(optimized, frame, "duration", "DU")
 	
-	var elements: Array = _get_pair(optimized, frame, "elements", "E")
+	var elements: Array = get_pair(optimized, frame, "elements", "E")
 	for element: Dictionary in elements:
 		if element.has("SYMBOL_Instance") or element.has("SI"):
-			gd_frame.elements.push_back(_load_symbol_instance(optimized, element))
+			gd_frame.elements.push_back(load_symbol_instance(optimized, element))
 		else:
-			gd_frame.elements.push_back(_load_atlas_sprite(optimized, element))
+			gd_frame.elements.push_back(load_atlas_sprite(optimized, element))
 	
 	return gd_frame
 
 
-func _load_symbol_instance(optimized: bool, element: Dictionary) -> AdobeSymbolInstance:
+func load_symbol_instance(optimized: bool, element: Dictionary) -> AdobeSymbolInstance:
 	var symbol_instance: AdobeSymbolInstance = AdobeSymbolInstance.new()
-	element = _get_pair(optimized, element, "SYMBOL_Instance", "SI")
+	element = get_pair(optimized, element, "SYMBOL_Instance", "SI")
 
-	var key: String = _get_pair(optimized, element, "SYMBOL_name", "SN")
+	var key: String = get_pair(optimized, element, "SYMBOL_name", "SN")
 	symbol_instance.key = StringName(key)
-	if _has_pair(optimized, element, "firstFrame", "FF"):
-		symbol_instance.first_frame = _get_pair(optimized, element, "firstFrame", "FF")
+	if has_pair(optimized, element, "firstFrame", "FF"):
+		symbol_instance.first_frame = get_pair(optimized, element, "firstFrame", "FF")
 	else:
 		symbol_instance.first_frame = 0
 	
-	symbol_instance.transform = _parse_matrix(_get_pair(optimized, element, "Matrix3D", "M3D"))
+	if has_pair(optimized, element, "Matrix", "MX"):
+		symbol_instance.transform = parse_matrix(get_pair(optimized, element, "Matrix", "MX"))
+	else:
+		symbol_instance.transform = parse_matrix(get_pair(optimized, element, "Matrix3D", "M3D"))
 	
-	if _has_pair(optimized, element, "loop", "LP"):
-		var loop_mode: String = _get_pair(optimized, element, "loop", "LP")
+	if has_pair(optimized, element, "blend", "B"):
+		symbol_instance.blend_mode = get_pair(optimized, element, "blend", "B") as AdobeSymbolInstance.AdobeBlendMode
+	
+	if has_pair(optimized, element, "color", "C"):
+		symbol_instance.color_matrix = AdobeColorMatrix.parse(optimized, get_pair(optimized, element, "color", "C"))
+	
+	if has_pair(optimized, element, "loop", "LP"):
+		var loop_mode: String = get_pair(optimized, element, "loop", "LP")
 		if optimized:
 			match loop_mode:
 				"PO":
@@ -390,7 +446,7 @@ func _load_symbol_instance(optimized: bool, element: Dictionary) -> AdobeSymbolI
 	else:
 		symbol_instance.loop_mode = AdobeSymbolInstance.AdobeSymbolLoopMode.LOOP
 	
-	var type: String = _get_pair(optimized, element, "symbolType", "ST")
+	var type: String = get_pair(optimized, element, "symbolType", "ST")
 	if optimized:
 		symbol_instance.type = (
 			AdobeSymbolInstance.AdobeSymbolType.MOVIE_CLIP
@@ -407,20 +463,23 @@ func _load_symbol_instance(optimized: bool, element: Dictionary) -> AdobeSymbolI
 	return symbol_instance
 
 
-func _load_atlas_sprite(optimized: bool, element: Dictionary) -> AdobeAtlasSprite:
-	element = _get_pair(optimized, element, "ATLAS_SPRITE_instance", "ASI")
+func load_atlas_sprite(optimized: bool, element: Dictionary) -> AdobeAtlasSprite:
+	element = get_pair(optimized, element, "ATLAS_SPRITE_instance", "ASI")
 	
-	var key_raw: String = _get_pair(optimized, element, "name", "N")
+	var key_raw: String = get_pair(optimized, element, "name", "N")
 	var key: StringName = StringName(key_raw)
 	if not spritemap.has(key):
 		return AdobeAtlasSprite.new()
 	
 	var sprite: AdobeAtlasSprite = spritemap[key].duplicate()
-	sprite.transform = _parse_matrix(_get_pair(optimized, element, "Matrix3D", "M3D"))
+	if has_pair(optimized, element, "Matrix", "MX"):
+		sprite.transform = parse_matrix(get_pair(optimized, element, "Matrix", "MX"))
+	else:
+		sprite.transform = parse_matrix(get_pair(optimized, element, "Matrix3D", "M3D"))
 	return sprite
 
 
-func _parse_matrix(matrix: Variant) -> Transform2D:
+func parse_matrix(matrix: Variant) -> Transform2D:
 	if matrix == null:
 		return Transform2D.IDENTITY
 	
@@ -431,6 +490,16 @@ func _parse_matrix(matrix: Variant) -> Transform2D:
 			Vector2(matrix["m30"], matrix["m31"])
 		)
 	
+	if matrix is not Array:
+		return Transform2D.IDENTITY
+	
+	if matrix.size() == 6:
+		return Transform2D(
+			Vector2(matrix[0], matrix[1]),
+			Vector2(matrix[2], matrix[3]),
+			Vector2(matrix[4], matrix[5])
+		)
+	
 	return Transform2D(
 		Vector2(matrix[0], matrix[1]),
 		Vector2(matrix[4], matrix[5]),
@@ -438,9 +507,9 @@ func _parse_matrix(matrix: Variant) -> Transform2D:
 	)
 
 
-func _has_pair(optimized: bool, dict: Dictionary, unoptim: String, optim: String) -> bool:
+func has_pair(optimized: bool, dict: Dictionary, unoptim: String, optim: String) -> bool:
 	return dict.has(optim if optimized else unoptim)
 
 
-func _get_pair(optimized: bool, dict: Dictionary, unoptim: String, optim: String) -> Variant:
+func get_pair(optimized: bool, dict: Dictionary, unoptim: String, optim: String) -> Variant:
 	return dict.get(optim if optimized else unoptim)

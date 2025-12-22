@@ -60,11 +60,14 @@ class_name AnimateSymbol
 			notify_property_list_changed()
 			queue_redraw()
 		atlas_index = value
+
+@export_tool_button("Cache Current", "Save") var atlas_cache: Callable = cache_current
 @export_tool_button("Reparse Current", "Reload") var atlas_reload: Callable = reparse_current
 
 var frame_timer: float = 0.0
 var internal_canvas_items: Array[RID] = []
 var last_atlases_size: int = 0
+var adobe_atlas_material: ShaderMaterial = null
 
 
 func _validate_property(property: Dictionary) -> void:
@@ -130,19 +133,10 @@ func _process(delta: float) -> void:
 		frame_timer = wrapf(frame_timer, 0.0, 1.0 / fps)
 
 
-func reparse_current() -> void:
-	if atlases.is_empty():
-		return
-	var atlas: AnimateAtlas = atlases[atlas_index]
-	if not is_instance_valid(atlas):
-		return
-	atlas.parse()
-	queue_redraw()
-
-
 func _draw() -> void:
 	RenderingServer.canvas_item_clear(get_canvas_item())
 	for rid: RID in internal_canvas_items:
+		RenderingServer.canvas_item_clear(rid)
 		RenderingServer.free_rid(rid)
 	internal_canvas_items.clear()
 	
@@ -191,6 +185,10 @@ func _draw_sparrow(atlas: SparrowAtlas, draw_info: AnimateDrawInfo) -> void:
 
 
 func _draw_adobe(atlas: AdobeAtlas, draw_info: AnimateDrawInfo) -> void:
+	if not is_instance_valid(adobe_atlas_material):
+		adobe_atlas_material = load("uid://bxdjijj35wput")
+	
+	draw_info.material = adobe_atlas_material
 	atlas.draw_on(get_canvas_item(), draw_info)
 
 
@@ -230,3 +228,18 @@ func validate_frame(value: int, length: int = -1) -> int:
 		value = 0
 
 	return value
+
+
+func cache_current() -> void:
+	if not atlases.is_empty():
+		var atlas: AnimateAtlas = atlases[atlas_index]
+		if is_instance_valid(atlas):
+			atlas.cache()
+
+
+func reparse_current() -> void:
+	if not atlases.is_empty():
+		var atlas: AnimateAtlas = atlases[atlas_index]
+		if is_instance_valid(atlas):
+			atlas.parse()
+			queue_redraw()

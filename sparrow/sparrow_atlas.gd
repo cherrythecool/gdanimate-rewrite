@@ -111,7 +111,8 @@ func cache() -> void:
 	super()
 
 	var basename: String = sparrow_path.get_basename()
-	ResourceSaver.save(self, "%s.res" % [basename], ResourceSaver.FLAG_COMPRESS)
+	take_over_path("%s.res" % [basename])
+	ResourceSaver.save(self, "%s.res" % [basename], ResourceSaver.FLAG_COMPRESS + ResourceSaver.FLAG_REPLACE_SUBRESOURCE_PATHS)
 
 
 func get_frame_filtered(frame: int, prefix: String) -> SparrowFrame:

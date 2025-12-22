@@ -10,20 +10,22 @@ instance uniform vec4 color_multipliers_3 = vec4(0.0, 0.0, 0.0, 1.0);
 instance uniform vec4 color_offsets = vec4(0.0);
 
 instance uniform int blend_mode : hint_enum(
-	"Normal", // 0
-	"Darken", // 1
-	"Multiply", // 2
-	"Lighten", // 3
-	"Screen", // 4
-	"Overlay", // 5
-	"Hard Light", // 6
-	"Add", // 7
-	"Subtract", // 8
-	"Difference", // 9
-	"Invert", // 10
-	"Alpha", // 11
-	"Erase" // 12
-) = 0;
+	"ADD",
+	"ALPHA",
+	"DARKEN",
+	"DIFFERENCE",
+	"ERASE",
+	"HARD LIGHT",
+	"INVERT",
+	"LAYER", // Not implemented, just per BTA
+	"LIGHTEN",
+	"MULTIPLY",
+	"NORMAL",
+	"OVERLAY",
+	"SCREEN",
+	"SHADER", // Not implemented, just per BTA
+	"SUBTRACT"
+) = 10;
 
 // most from https://godotshaders.com/snippet/blending-modes/
 vec3 multiply(vec3 base, vec3 blend){
@@ -51,7 +53,7 @@ vec3 overlay(vec3 base, vec3 blend){
 	return mix(2.0 * base * blend, 1.0 - 2.0 * (1.0 - base) * (1.0 - blend), limit);
 }
 
-vec3 linear_dodge(vec3 base, vec3 blend) {
+vec3 add(vec3 base, vec3 blend) {
 	return base + blend;
 }
 
@@ -64,46 +66,6 @@ vec3 invert(vec3 base) {
 }
 
 void fragment() {
-	if (blend_mode > 0) {
-		vec4 screen_c = texture(SCREEN_TEXTURE, SCREEN_UV);
-		switch (blend_mode) {
-			case 1:
-				COLOR.rgb = darken(COLOR.rgb, screen_c.rgb);
-				break;
-			case 2:
-				COLOR.rgb = multiply(COLOR.rgb, screen_c.rgb);
-				break;
-			case 3:
-				COLOR.rgb = lighten(COLOR.rgb, screen_c.rgb);
-				break;
-			case 4:
-				COLOR.rgb = screen(COLOR.rgb, screen_c.rgb);
-				break;
-			case 5:
-				COLOR.rgb = overlay(screen_c.rgb, COLOR.rgb);
-				break;
-			case 6:
-				COLOR.rgb = overlay(COLOR.rgb, screen_c.rgb);
-				break;
-			case 7:
-				COLOR.rgb = linear_dodge(COLOR.rgb, screen_c.rgb);
-				break;
-			case 8:
-				COLOR.rgb = subtract(screen_c.rgb, COLOR.rgb);
-				break;
-			case 9:
-				COLOR.rgb = difference(COLOR.rgb, screen_c.rgb);
-				break;
-			case 10:
-				COLOR.rgb = invert(screen_c.rgb);
-				break;
-			case 11: // adobe animate skill issue
-			case 12:
-				discard;
-				break;
-		}
-	}
-	
 	mat4 color_multipliers = mat4(
 		color_multipliers_0,
 		color_multipliers_1,
@@ -111,4 +73,44 @@ void fragment() {
 		color_multipliers_3
 	);
 	COLOR = color_offsets + (COLOR * color_multipliers);
+
+	if (blend_mode > -1) {
+		vec4 screen_c = texture(SCREEN_TEXTURE, SCREEN_UV);
+		switch (blend_mode) {
+			case 2:
+				COLOR.rgb = darken(COLOR.rgb, screen_c.rgb);
+				break;
+			case 9:
+				COLOR.rgb = multiply(COLOR.rgb, screen_c.rgb);
+				break;
+			case 8:
+				COLOR.rgb = lighten(COLOR.rgb, screen_c.rgb);
+				break;
+			case 12:
+				COLOR.rgb = screen(COLOR.rgb, screen_c.rgb);
+				break;
+			case 11:
+				COLOR.rgb = overlay(screen_c.rgb, COLOR.rgb);
+				break;
+			case 5:
+				COLOR.rgb = overlay(COLOR.rgb, screen_c.rgb);
+				break;
+			case 0:
+				COLOR.rgb = add(COLOR.rgb, screen_c.rgb);
+				break;
+			case 14:
+				COLOR.rgb = subtract(screen_c.rgb, COLOR.rgb);
+				break;
+			case 3:
+				COLOR.rgb = difference(COLOR.rgb, screen_c.rgb);
+				break;
+			case 6:
+				COLOR.rgb = invert(screen_c.rgb);
+				break;
+			case 1: // adobe animate skill issue
+			case 4:
+				discard;
+				break;
+		}
+	}
 }
