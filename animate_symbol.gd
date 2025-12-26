@@ -25,6 +25,7 @@ class_name AnimateSymbol
 
 @export_range(0.0, 10.0, 0.01, "or_greater") var speed_scale: float = 1.0
 
+@export var autoplay: bool = false
 @export var playing: bool = false
 @export var loop: bool = false
 
@@ -70,6 +71,11 @@ var last_atlases_size: int = 0
 var adobe_atlas_material: ShaderMaterial = null
 
 
+func _enter_tree() -> void:
+	if autoplay and not Engine.is_editor_hint():
+		playing = true
+
+
 func _validate_property(property: Dictionary) -> void:
 	if property.name == "symbol":
 		property.hint = PROPERTY_HINT_PLACEHOLDER_TEXT
@@ -112,6 +118,7 @@ func _process(delta: float) -> void:
 		notify_property_list_changed()
 	
 	if atlases.is_empty():
+		frame = 0
 		return
 	if atlas_index > atlases.size() - 1:
 		atlas_index = atlases.size() - 1
@@ -120,8 +127,9 @@ func _process(delta: float) -> void:
 		return
 	if atlas.wants_redraw():
 		frame = frame
-		notify_property_list_changed()
 		queue_redraw()
+	if atlas.wants_reload_list():
+		notify_property_list_changed()
 	
 	if not playing:
 		return

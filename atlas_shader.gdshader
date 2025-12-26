@@ -1,6 +1,6 @@
 shader_type canvas_item;
 
-uniform sampler2D SCREEN_TEXTURE : hint_screen_texture;
+uniform sampler2D SCREEN_TEXTURE : hint_screen_texture, filter_nearest;
 
 // Thanks GDShader for no mat4 in shader instance uniforms!
 instance uniform vec4 color_multipliers_0 = vec4(1.0, 0.0, 0.0, 0.0);
@@ -76,41 +76,28 @@ void fragment() {
 
 	if (blend_mode > -1) {
 		vec4 screen_c = texture(SCREEN_TEXTURE, SCREEN_UV);
-		switch (blend_mode) {
-			case 2:
-				COLOR.rgb = darken(COLOR.rgb, screen_c.rgb);
-				break;
-			case 9:
-				COLOR.rgb = multiply(COLOR.rgb, screen_c.rgb);
-				break;
-			case 8:
-				COLOR.rgb = lighten(COLOR.rgb, screen_c.rgb);
-				break;
-			case 12:
-				COLOR.rgb = screen(COLOR.rgb, screen_c.rgb);
-				break;
-			case 11:
-				COLOR.rgb = overlay(screen_c.rgb, COLOR.rgb);
-				break;
-			case 5:
-				COLOR.rgb = overlay(COLOR.rgb, screen_c.rgb);
-				break;
-			case 0:
-				COLOR.rgb = add(COLOR.rgb, screen_c.rgb);
-				break;
-			case 14:
-				COLOR.rgb = subtract(screen_c.rgb, COLOR.rgb);
-				break;
-			case 3:
-				COLOR.rgb = difference(COLOR.rgb, screen_c.rgb);
-				break;
-			case 6:
-				COLOR.rgb = invert(screen_c.rgb);
-				break;
-			case 1: // adobe animate skill issue
-			case 4:
-				discard;
-				break;
+		if (blend_mode == 2) {
+			COLOR.rgb = darken(COLOR.rgb, screen_c.rgb);
+		} else if (blend_mode == 9) {
+			COLOR.rgb = multiply(COLOR.rgb, screen_c.rgb);
+		} else if (blend_mode == 8) {
+			COLOR.rgb = lighten(COLOR.rgb, screen_c.rgb);
+		} else if (blend_mode == 12) {
+			COLOR.rgb = screen(COLOR.rgb, screen_c.rgb);
+		} else if (blend_mode == 11) {
+			COLOR.rgb = overlay(screen_c.rgb, COLOR.rgb);
+		} else if (blend_mode == 5) {
+			COLOR.rgb = overlay(COLOR.rgb, screen_c.rgb);
+		} else if (blend_mode == 0) {
+			COLOR.rgb = add(COLOR.rgb, screen_c.rgb);
+		} else if (blend_mode == 14) {
+			COLOR.rgb = subtract(screen_c.rgb, COLOR.rgb);
+		} else if (blend_mode == 3) {
+			COLOR.rgb = difference(COLOR.rgb, screen_c.rgb);
+		} else if (blend_mode == 6) {
+			COLOR.rgb = invert(screen_c.rgb);
+		} else if (blend_mode == 1 || blend_mode == 4) { // adobe animate skill issue
+			discard;
 		}
 	}
 }

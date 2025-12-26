@@ -196,7 +196,8 @@ func get_filename() -> String:
 
 func get_symbols() -> String:
 	var string: String = ""
-	for symbol_name: StringName in symbols:
+	symbols.sort()
+	for symbol_name: String in symbols:
 		string += "%s," % [symbol_name.json_escape()]
 	if not string.is_empty():
 		string.remove_char(string.length() - 1)

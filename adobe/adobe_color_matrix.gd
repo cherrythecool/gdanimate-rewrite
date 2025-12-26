@@ -60,8 +60,16 @@ static func parse(optimized: bool, data: Dictionary) -> AdobeColorMatrix:
 			matrix.color_multipliers[3] *= float(am)
 		"CBRT", "Brightness":
 			var brt: Variant = data.get("BRT") if optimized else data.get("brightness")
+			var brightness: float = float(brt)
+			
+			var color_mult: float = 1.0 - absf(brightness)
+			matrix.color_multipliers[0] *= float(color_mult)
+			matrix.color_multipliers[1] *= float(color_mult)
+			matrix.color_multipliers[2] *= float(color_mult)
+			
+			var color_offset: float = maxf(brightness, 0.0)
 			matrix.color_offsets += Vector4(
-				float(brt) / 255.0, float(brt) / 255.0, float(brt) / 255.0, 0.0,
+				color_offset, color_offset, color_offset, 0.0,
 			)
 		"T", "Tint":
 			var tc: Variant = data.get("TC") if optimized else data.get("tintColor")
