@@ -7,16 +7,18 @@ class_name SparrowAtlas
 	set(v):
 		source_path = v
 		parse()
+
 @export var texture: Texture2D = null:
 	set(v):
 		texture = v
 		redraw_requested.emit()
+@export var override_texture: bool = false
 
 @export var framerate: float = 24.0
+@export_tool_button("Export", "SpriteFrames") var export_spriteframes: Callable = export
 
 @export_storage var frames: Array[SparrowFrame] = []
 @export_storage var symbols: PackedStringArray = []
-@export_tool_button("Export", "SpriteFrames") var export_spriteframes: Callable = export
 
 # Caches the relationship between symbols -> frames
 # so that there is less time needed to filter the
@@ -36,12 +38,10 @@ var internal_rotated_cache: Dictionary[Rect2, AtlasTexture] = {}
 func parse() -> void:
 	super()
 
-	redraw_requested.emit()
 	frames.clear()
 	symbols.clear()
 	internal_frames_cache.clear()
 	internal_bounding_cache.clear()
-	texture = null
 
 	var basename: String = source_path.get_basename()
 	var cache_path: String = "%s.res" % [basename]
@@ -53,6 +53,7 @@ func parse() -> void:
 		symbols = cached.symbols
 		symbols_changed.emit()
 		return
+
 	if not FileAccess.file_exists(source_path):
 		printerr("Failed to find sparrow at path \"%s\"!" % [source_path])
 		symbols_changed.emit()
@@ -69,50 +70,53 @@ func parse() -> void:
 	while xml.read() != ERR_FILE_EOF:
 		if xml.get_node_type() != XMLParser.NODE_ELEMENT:
 			continue
-		var node_name: String = xml.get_node_name().to_lower()
-		if node_name == "textureatlas" and not is_instance_valid(texture):
-			var texture_path: String = "%s/%s" % [
-				source_path.get_base_dir(),
-				xml.get_named_attribute_value_safe("imagePath"),
-			]
 
-			if not ResourceLoader.exists(texture_path):
-				texture_path = "%s.png" % [source_path.get_basename()]
-			if ResourceLoader.exists(texture_path):
-				texture = load(ResourceUID.path_to_uid(texture_path))
-		if node_name == "subtexture":
-			var frame: SparrowFrame = SparrowFrame.new()
-			frame.name = xml.get_named_attribute_value_safe("name")
-			frame.region = Rect2(
-				Vector2(
-					float(xml.get_named_attribute_value_safe("x")),
-					float(xml.get_named_attribute_value_safe("y"))
-				),
-				Vector2(
-					float(xml.get_named_attribute_value_safe("width")),
-					float(xml.get_named_attribute_value_safe("height"))
-				))
-			if xml.has_attribute("frameX"):
-				frame.offset = Rect2(
+		var node_name: String = xml.get_node_name().to_lower()
+		match node_name:
+			"textureatlas":
+				if override_texture:
+					continue
+				var path: String = "%s/%s" % [
+					source_path.get_base_dir(),
+					xml.get_named_attribute_value_safe("imagePath"),
+				]
+
+				if not ResourceLoader.exists(path):
+					path = "%s.png" % [source_path.get_basename()]
+				if ResourceLoader.exists(path):
+					texture = load(ResourceUID.path_to_uid(path))
+			"subtexture":
+				var frame: SparrowFrame = SparrowFrame.new()
+				frame.name = xml.get_named_attribute_value_safe("name")
+				frame.region = Rect2(
 					Vector2(
-						float(xml.get_named_attribute_value_safe("frameX")),
-						float(xml.get_named_attribute_value_safe("frameY"))
+						float(xml.get_named_attribute_value_safe("x")),
+						float(xml.get_named_attribute_value_safe("y"))
 					),
 					Vector2(
-						float(xml.get_named_attribute_value_safe("frameWidth")),
-						float(xml.get_named_attribute_value_safe("frameHeight"))
+						float(xml.get_named_attribute_value_safe("width")),
+						float(xml.get_named_attribute_value_safe("height"))
 					)
 				)
-			else:
-				frame.offset = Rect2(
-					Vector2.ZERO,
-					frame.region.size
-				)
 
-			frame.rotated = xml.get_named_attribute_value_safe("rotated") == "true"
-			frames.push_back(frame)
+				if xml.has_attribute("frameX"):
+					frame.offset = Rect2(
+						Vector2(
+							float(xml.get_named_attribute_value_safe("frameX")),
+							float(xml.get_named_attribute_value_safe("frameY"))
+						),
+						Vector2(
+							float(xml.get_named_attribute_value_safe("frameWidth")),
+							float(xml.get_named_attribute_value_safe("frameHeight"))
+						)
+					)
+				else:
+					frame.offset = Rect2(Vector2.ZERO, frame.region.size)
 
-	frames.sort_custom(sort_frames)
+				frame.rotated = xml.get_named_attribute_value_safe("rotated") == "true"
+				frames.push_back(frame)
+
+	frames.sort_custom(SparrowFrame.sort_by_name)
 	for frame: SparrowFrame in frames:
 		if frame.name.length() < 4:
 			continue
@@ -120,6 +124,7 @@ func parse() -> void:
 		var cutout: String = frame.name.left(-4)
 		if (not symbols.has(cutout)) and numbers.is_valid_int():
 			symbols.push_back(cutout)
+
 	symbols_changed.emit()
 
 
@@ -129,6 +134,75 @@ func cache() -> void:
 	var basename: String = source_path.get_basename()
 	take_over_path("%s.res" % [basename])
 	ResourceSaver.save(self, "%s.res" % [basename], ResourceSaver.FLAG_COMPRESS + ResourceSaver.FLAG_REPLACE_SUBRESOURCE_PATHS)
+
+
+func get_framerate() -> float:
+	return framerate
+
+
+func get_filename() -> String:
+	return source_path.get_file()
+
+
+func get_symbol_list() -> PackedStringArray:
+	return symbols
+
+
+func get_symbol_length(key: StringName) -> int:
+	if not internal_frames_cache.has(key):
+		internal_frames_cache[key] = get_filtered_frames(key)
+	return maxi(internal_frames_cache[key].size() - 1, 0)
+
+
+func draw_2d(target: AnimateSymbol2D) -> void:
+	super(target)
+
+	var sparrow_frame: SparrowFrame = get_filtered_frame(target.symbol, target.frame)
+	if not is_instance_valid(sparrow_frame):
+		push_warning("Cannot draw invalid sparrow atlas frame!")
+		return
+
+	var canvas_item: RID = target.get_canvas_item()
+	var offset: Vector2 = -sparrow_frame.offset.position
+	offset += target.offset
+	if target.centered:
+		offset -= get_bounding_box(target.symbol).size / 2.0
+
+	if sparrow_frame.rotated:
+		RenderingServer.canvas_item_add_set_transform(canvas_item,
+			Transform2D(
+				-PI / 2.0,
+				Vector2(
+					offset.x,
+					sparrow_frame.region.size.x + offset.y
+				),
+			)
+		)
+	else:
+		RenderingServer.canvas_item_add_set_transform(canvas_item,
+			Transform2D(0.0, offset)
+		)
+
+	RenderingServer.canvas_item_add_texture_rect_region(canvas_item,
+		Rect2(Vector2.ZERO, sparrow_frame.region.size),
+		texture, sparrow_frame.region,
+	)
+
+
+func get_bounding_box(symbol: String) -> Rect2:
+	if not internal_bounding_cache.has(symbol):
+		var filtered: Array[SparrowFrame] = get_filtered_frames(symbol)
+		var bounding: Rect2 = Rect2()
+		for frame: SparrowFrame in filtered:
+			if frame.rotated:
+				bounding = bounding.merge(Rect2(
+					Vector2.ZERO,
+					Vector2(frame.region.size.y, frame.region.size.x)
+				))
+			else:
+				bounding = bounding.merge(Rect2(Vector2.ZERO, frame.region.size))
+		internal_bounding_cache[symbol] = bounding
+	return internal_bounding_cache[symbol]
 
 
 func export() -> void:
@@ -205,59 +279,8 @@ func get_filtered_frame(prefix: String, frame: int) -> SparrowFrame:
 	var filtered: Array = internal_frames_cache[prefix]
 	if filtered.is_empty():
 		return null
-
-	return filtered[mini(frame, maxi(filtered.size() - 1, 0))]
-
-
-func draw_2d(target: AnimateSymbol2D) -> void:
-	super(target)
-	var sparrow_frame: SparrowFrame = get_filtered_frame(target.symbol, target.frame)
-	if not is_instance_valid(sparrow_frame):
-		push_warning("Cannot draw invalid sparrow atlas frame!")
-		return
-
-	var canvas_item: RID = target.get_canvas_item()
-	var offset: Vector2 = -sparrow_frame.offset.position
-	offset += target.offset
-	if target.centered:
-		offset -= get_bounding_box(target.symbol).size / 2.0
-
-	# TODO: Switch to always use add set transform maybe
-	if sparrow_frame.rotated:
-		RenderingServer.canvas_item_add_set_transform(canvas_item,
-			Transform2D(
-				-PI / 2.0, #deg_to_rad(-90.0),
-				Vector2(
-					offset.x,
-					sparrow_frame.region.size.x + offset.y
-				)
-			)
-		)
-	RenderingServer.canvas_item_add_texture_rect_region(canvas_item,
-		Rect2(
-			offset if not sparrow_frame.rotated else Vector2.ZERO,
-			sparrow_frame.region.size
-		),
-		texture, sparrow_frame.region
-	)
-
-
-func get_framerate() -> float:
-	return framerate
-
-
-func get_filename() -> String:
-	return source_path.get_file()
-
-
-func get_symbol_list() -> PackedStringArray:
-	return symbols
-
-
-func get_symbol_length(key: StringName) -> int:
-	if not internal_frames_cache.has(key):
-		internal_frames_cache[key] = get_filtered_frames(key)
-	return maxi(internal_frames_cache[key].size() - 1, 0)
+	else:
+		return filtered[mini(frame, maxi(filtered.size() - 1, 0))]
 
 
 func get_filtered_frames(filter: String) -> Array[SparrowFrame]:
@@ -272,23 +295,3 @@ func get_filtered_frames(filter: String) -> Array[SparrowFrame]:
 				frame.name.right(4).is_valid_int()
 			)
 	)
-
-
-func get_bounding_box(symbol: String) -> Rect2:
-	if not internal_bounding_cache.has(symbol):
-		var filtered: Array[SparrowFrame] = get_filtered_frames(symbol)
-		var bounding: Rect2 = Rect2()
-		for frame: SparrowFrame in filtered:
-			if frame.rotated:
-				bounding = bounding.merge(Rect2(
-					Vector2.ZERO,
-					Vector2(frame.region.size.y, frame.region.size.x)
-				))
-			else:
-				bounding = bounding.merge(Rect2(Vector2.ZERO, frame.region.size))
-		internal_bounding_cache[symbol] = bounding
-	return internal_bounding_cache[symbol]
-
-
-func sort_frames(a: SparrowFrame, b: SparrowFrame) -> bool:
-	return String(a.name) < String(b.name)

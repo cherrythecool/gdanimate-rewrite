@@ -16,7 +16,7 @@ func get_framerate() -> float:
 
 
 func get_filename() -> String:
-	return "Unknown"
+	return "N/A"
 
 
 func get_symbol_list() -> PackedStringArray:
@@ -32,7 +32,7 @@ func get_symbol_rect(key: StringName) -> Rect2:
 
 
 func parse() -> void:
-	pass
+	redraw_requested.emit()
 
 
 func cache() -> void:
