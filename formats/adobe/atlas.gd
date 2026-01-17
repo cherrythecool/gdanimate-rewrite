@@ -1,5 +1,5 @@
 @tool
-extends AnimateAtlas
+extends AnimateSymbolLibrary
 class_name AdobeAtlas
 
 
@@ -206,7 +206,11 @@ func draw_symbol(target: AdobeSymbol, parent: RID,
 						symbol_frame,
 						is_clipper or layer.clipping,
 						items,
-						element.blend_mode,
+						(
+							element.blend_mode
+							if blend_mode == AdobeSymbolInstance.AdobeBlendMode.NORMAL
+							else blend_mode
+						),
 						material,
 						next_matrix
 					)
@@ -228,7 +232,13 @@ func draw_symbol(target: AdobeSymbol, parent: RID,
 						used_matrix = AdobeColorMatrix.new()
 					
 					if use_material:
-						if blend_mode != AdobeSymbolInstance.AdobeBlendMode.NORMAL:
+						var ignored_blends: Array[AdobeSymbolInstance.AdobeBlendMode] = [
+							AdobeSymbolInstance.AdobeBlendMode.NORMAL,
+							AdobeSymbolInstance.AdobeBlendMode.ALPHA,
+							AdobeSymbolInstance.AdobeBlendMode.ERASE,
+						]
+						
+						if not ignored_blends.has(blend_mode):
 							# TODO: Optimize the rect here, please it's crapping my perf
 							RenderingServer.canvas_item_set_copy_to_backbuffer(layer_rid, true, Rect2())
 						
