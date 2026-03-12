@@ -7,6 +7,10 @@ class_name AnimateSymbol
 @export_placeholder("Name or Prefix") var symbol: String = "":
 	set(value):
 		if symbol != value:
+			var atlas: AnimateAtlas = get_atlas()
+			if atlas is AdobeAtlas:
+				atlas.use_backbuffer_cache = false
+
 			queue_redraw()
 		symbol = value
 
@@ -16,10 +20,14 @@ class_name AnimateSymbol
 			queue_redraw()
 			frame = value
 			return
-		
+
 		var length: int = get_animation_length()
 		value = validate_frame(value, length)
 		if frame != value:
+			var atlas: AnimateAtlas = get_atlas()
+			if atlas is AdobeAtlas:
+				atlas.use_backbuffer_cache = false
+
 			queue_redraw()
 			frame = value
 
@@ -37,6 +45,10 @@ class_name AnimateSymbol
 @export var centered: bool = true:
 	set(value):
 		if centered != value:
+			var atlas: AnimateAtlas = get_atlas()
+			if atlas is AdobeAtlas:
+				atlas.use_backbuffer_cache = false
+
 			queue_redraw()
 
 		centered = value
@@ -44,8 +56,12 @@ class_name AnimateSymbol
 @export var offset: Vector2 = Vector2.ZERO:
 	set(value):
 		if offset != value:
+			var atlas: AnimateAtlas = get_atlas()
+			if atlas is AdobeAtlas:
+				atlas.use_backbuffer_cache = false
+
 			queue_redraw()
-		
+
 		offset = value
 
 @export_group("Atlas")
@@ -69,18 +85,20 @@ var frame_timer: float = 0.0
 var internal_canvas_items: Array[RID] = []
 var last_atlases_size: int = 0
 var adobe_atlas_material: ShaderMaterial = null
+var last_screen_transform: Transform2D = Transform2D()
 
 
 func _enter_tree() -> void:
 	if autoplay and not Engine.is_editor_hint():
 		playing = true
+	last_screen_transform = get_screen_transform()
 
 
 func _validate_property(property: Dictionary) -> void:
 	if property.name == "symbol":
 		property.hint = PROPERTY_HINT_PLACEHOLDER_TEXT
 		property.hint_string = "Name or Prefix"
-		
+
 		if atlases.is_empty():
 			return
 		var atlas: AnimateAtlas = atlases[atlas_index]
@@ -92,22 +110,22 @@ func _validate_property(property: Dictionary) -> void:
 		elif atlas is SparrowAtlas:
 			if atlas.symbols.is_empty():
 				return
-			
+
 			property.hint = PROPERTY_HINT_ENUM
 			property.hint_string = atlas.get_symbols()
 
 	if property.name == "atlas_index":
 		property.hint = PROPERTY_HINT_ENUM
 		property.hint_string = ""
-		
+
 		for i: int in atlases.size():
 			var atlas: AnimateAtlas = atlases[i]
 			if not is_instance_valid(atlas):
 				property.hint_string += "#%d - null" % [i]
 				continue
-			
+
 			property.hint_string += "#%d - %s" % [i, atlas.get_filename()]
-			
+
 			if i != atlases.size() - 1:
 				property.hint_string += ","
 
@@ -116,21 +134,30 @@ func _process(delta: float) -> void:
 	if atlases.size() != last_atlases_size:
 		last_atlases_size = atlases.size()
 		notify_property_list_changed()
-	
 	if atlases.is_empty():
 		frame = 0
 		return
-	if atlas_index > atlases.size() - 1:
-		atlas_index = atlases.size() - 1
-	var atlas: AnimateAtlas = atlases[atlas_index]
+
+	var atlas: AnimateAtlas = get_atlas()
 	if not is_instance_valid(atlas):
 		return
+
+	if last_screen_transform != get_screen_transform():
+		last_screen_transform = get_screen_transform()
+		if atlas is AdobeAtlas:
+			atlas.use_backbuffer_cache = true
+
+		queue_redraw()
+
 	if atlas.wants_redraw():
 		frame = frame
+		if atlas is AdobeAtlas:
+			atlas.use_backbuffer_cache = false
+
 		queue_redraw()
 	if atlas.wants_reload_list():
 		notify_property_list_changed()
-	
+
 	if not playing:
 		return
 
@@ -142,21 +169,10 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
-	RenderingServer.canvas_item_clear(get_canvas_item())
-	for rid: RID in internal_canvas_items:
-		RenderingServer.canvas_item_clear(rid)
-		RenderingServer.free_rid(rid)
-	internal_canvas_items.clear()
-	
-	if atlases.is_empty():
-		return
-	if atlas_index > atlases.size() - 1:
-		atlas_index = 0
-
-	var atlas: AnimateAtlas = atlases[atlas_index]
+	var atlas: AnimateAtlas = get_atlas()
 	if not is_instance_valid(atlas):
 		return
-	
+
 	var draw_info: AnimateDrawInfo = AnimateDrawInfo.new(
 		symbol,
 		frame,
@@ -164,7 +180,18 @@ func _draw() -> void:
 		get_transform(),
 		internal_canvas_items
 	)
-	
+	draw_info.screen_transform = get_screen_transform()
+
+	if atlas is AdobeAtlas and atlas.use_backbuffer_cache:
+		_draw_adobe(atlas as AdobeAtlas, draw_info)
+		return
+
+	RenderingServer.canvas_item_clear(get_canvas_item())
+	for rid: RID in internal_canvas_items:
+		RenderingServer.canvas_item_clear(rid)
+		RenderingServer.free_rid(rid)
+	internal_canvas_items.clear()
+
 	match atlas.format:
 		"sparrow":
 			_draw_sparrow(atlas as SparrowAtlas, draw_info)
@@ -183,7 +210,7 @@ func _draw_sparrow(atlas: SparrowAtlas, draw_info: AnimateDrawInfo) -> void:
 	var sparrow_frame: SparrowFrame = atlas.get_frame_filtered(frame, symbol)
 	if not is_instance_valid(sparrow_frame):
 		return
-	
+
 	if centered:
 		if sparrow_frame.offset.size != Vector2i.ZERO:
 			draw_info.offset -= sparrow_frame.offset.size / 2.0
@@ -195,18 +222,13 @@ func _draw_sparrow(atlas: SparrowAtlas, draw_info: AnimateDrawInfo) -> void:
 func _draw_adobe(atlas: AdobeAtlas, draw_info: AnimateDrawInfo) -> void:
 	if not is_instance_valid(adobe_atlas_material):
 		adobe_atlas_material = load("uid://bxdjijj35wput")
-	
+
 	draw_info.material = adobe_atlas_material
 	atlas.draw_on(get_canvas_item(), draw_info)
 
 
 func get_animation_length() -> int:
-	if atlases.is_empty():
-		return 0
-	if atlas_index > atlases.size() - 1:
-		atlas_index = 0
-
-	var atlas: AnimateAtlas = atlases[atlas_index]
+	var atlas: AnimateAtlas = get_atlas()
 	if not is_instance_valid(atlas):
 		return 0
 
@@ -239,15 +261,23 @@ func validate_frame(value: int, length: int = -1) -> int:
 
 
 func cache_current() -> void:
-	if not atlases.is_empty():
-		var atlas: AnimateAtlas = atlases[atlas_index]
-		if is_instance_valid(atlas):
-			atlas.cache()
+	var atlas: AnimateAtlas = get_atlas()
+	if is_instance_valid(atlas):
+		atlas.cache()
 
 
 func reparse_current() -> void:
-	if not atlases.is_empty():
-		var atlas: AnimateAtlas = atlases[atlas_index]
-		if is_instance_valid(atlas):
-			atlas.parse()
-			queue_redraw()
+	var atlas: AnimateAtlas = get_atlas()
+	if is_instance_valid(atlas):
+		atlas.parse()
+		queue_redraw()
+
+
+func get_atlas() -> AnimateAtlas:
+	if atlases.is_empty():
+		return null
+	if atlas_index > atlases.size() - 1:
+		atlas_index = atlases.size() - 1
+
+	var atlas: AnimateAtlas = atlases[atlas_index]
+	return atlas

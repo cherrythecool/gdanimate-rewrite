@@ -46,35 +46,5 @@ enum AdobeBlendMode {
 @export_storage var color_matrix: AdobeColorMatrix = null
 
 
-func draw_on(parent: RID, frame: int, previous_transform: Transform2D, symbols: Dictionary[StringName, AdobeSymbol], stack: Array[String], id: int) -> void:
-	super(parent, frame, previous_transform, symbols, stack, id)
-	if not symbols.has(key):
-		printerr("Missing symbol %s to draw!" % [key])
-		return
-	
-	frame = first_frame
-	
-	var symbol: AdobeSymbol = symbols.get(key)
-	var length: int = symbol.length
-	if frame > length - 1:
-		frame = length - 1
-	
-	var trans: Transform2D = previous_transform * transform
-	for layer: AdobeLayer in symbol.layers:
-		for layer_frame: AdobeLayerFrame in layer.frames:
-			if frame < layer_frame.starting_index:
-				continue
-			if frame > layer_frame.starting_index + layer_frame.duration - 1:
-				continue
-			
-			var layer_stack: Array[String] = stack.duplicate()
-			layer_stack.push_back(layer.name)
-			for element: AdobeDrawable in layer_frame.elements:
-				if element is AdobeSymbolInstance:
-					id += 1
-				
-				element.draw_on(parent, frame, trans, symbols, layer_stack, id)
-
-
 func calculate_bounding_box() -> void:
 	pass

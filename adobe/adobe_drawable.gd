@@ -8,7 +8,7 @@ var bounding_box: Rect2 = Rect2():
 	get:
 		if bounding_box == Rect2():
 			calculate_bounding_box()
-		
+
 		return bounding_box
 
 
