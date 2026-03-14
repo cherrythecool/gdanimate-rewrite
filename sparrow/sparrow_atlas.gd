@@ -11,8 +11,8 @@ class_name SparrowAtlas
 
 @export var framerate: float = 24.0
 
-@export_storage var frames: Array[SparrowFrame] = []
-@export_storage var symbols: PackedStringArray = []
+var frames: Array[SparrowFrame] = []
+var symbols: PackedStringArray = []
 
 
 func parse() -> void:
