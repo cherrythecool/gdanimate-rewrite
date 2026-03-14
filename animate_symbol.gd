@@ -91,7 +91,7 @@ var last_screen_transform: Transform2D = Transform2D()
 func _enter_tree() -> void:
 	if autoplay and not Engine.is_editor_hint():
 		playing = true
-	last_screen_transform = get_global_transform_with_canvas()
+	last_screen_transform = get_backbuffer_transform()
 
 
 func _validate_property(property: Dictionary) -> void:
@@ -142,8 +142,8 @@ func _process(delta: float) -> void:
 	if not is_instance_valid(atlas):
 		return
 
-	if last_screen_transform != get_global_transform_with_canvas():
-		last_screen_transform = get_global_transform_with_canvas()
+	if last_screen_transform != get_backbuffer_transform():
+		last_screen_transform = get_backbuffer_transform()
 		if atlas is AdobeAtlas:
 			atlas.use_backbuffer_cache = true
 
@@ -180,7 +180,7 @@ func _draw() -> void:
 		get_transform(),
 		internal_canvas_items
 	)
-	draw_info.screen_transform = get_global_transform_with_canvas()
+	draw_info.screen_transform = get_backbuffer_transform()
 
 	if atlas is AdobeAtlas and atlas.use_backbuffer_cache:
 		_draw_adobe(atlas as AdobeAtlas, draw_info)
@@ -281,3 +281,7 @@ func get_atlas() -> AnimateAtlas:
 
 	var atlas: AnimateAtlas = atlases[atlas_index]
 	return atlas
+
+
+func get_backbuffer_transform() -> Transform2D:
+	return get_viewport().get_stretch_transform() * get_global_transform_with_canvas()
