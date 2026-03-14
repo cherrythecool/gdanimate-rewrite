@@ -423,9 +423,6 @@ func load_animation() -> void:
 			return
 
 		load_symbol_directory(optimized, dir)
-	else:
-		printerr("Failed to load symbol library for %s (neither SYMBOL_DICTIONARY, SD, or /LIBRARY folder exist)!" % [base_dir])
-		return
 
 	var anim: Dictionary = get_pair(optimized, data, "ANIMATION", "AN")
 	stage_symbol = get_pair(optimized, anim, "SYMBOL_name", "SN")
