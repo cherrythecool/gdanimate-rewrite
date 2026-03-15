@@ -31,6 +31,9 @@ class_name AnimateSymbol
 			queue_redraw()
 			frame = value
 
+		if not internal_setting_frame:
+			frame_timer = 0.0
+
 @export_range(0.0, 10.0, 0.01, "or_greater") var speed_scale: float = 1.0
 
 @export var autoplay: bool = false
@@ -86,6 +89,7 @@ var internal_canvas_items: Array[RID] = []
 var last_atlases_size: int = 0
 var adobe_atlas_material: ShaderMaterial = null
 var last_screen_transform: Transform2D = Transform2D()
+var internal_setting_frame: bool = false
 
 
 func _enter_tree() -> void:
@@ -161,11 +165,20 @@ func _process(delta: float) -> void:
 	if not playing:
 		return
 
+	internal_setting_frame = true
 	var fps: float = atlas.get_framerate()
 	frame_timer += delta * speed_scale
 	if frame_timer >= 1.0 / fps:
-		frame += floori(frame_timer * fps)
+		var amount: int = floori(frame_timer * fps)
+		if frame == get_animation_length() - 1 and (not loop) and amount > 0:
+			internal_setting_frame = false
+			playing = false
+			return
+
+		frame += amount
 		frame_timer = wrapf(frame_timer, 0.0, 1.0 / fps)
+	internal_setting_frame = false
+
 
 
 func _draw() -> void:
