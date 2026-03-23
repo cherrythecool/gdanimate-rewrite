@@ -119,9 +119,8 @@ var _frame_internal: int = 0:
 			frame_changed.emit()
 			queue_redraw()
 
-var _last_symbol_libraries_size: int = 0
-var _internal_canvas_items: Array[RID]
 var _last_symbol_libraries: Array[AnimateSymbolLibrary]
+var _internal_canvas_items: Array[RID]
 
 
 func _enter_tree() -> void:
@@ -133,16 +132,14 @@ func _enter_tree() -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_PROCESS:
-		if symbol_libraries.size() != _last_symbol_libraries_size:
-			_last_symbol_libraries_size = symbol_libraries.size()
+		if _last_symbol_libraries != symbol_libraries:
+			if Engine.is_editor_hint():
+				_update_editor_library_signals()
+			else:
+				_last_symbol_libraries = symbol_libraries
+
 			notify_property_list_changed()
 			frame = frame
-
-		if (
-			Engine.is_editor_hint() and
-			_last_symbol_libraries != symbol_libraries
-		):
-			_update_editor_library_signals()
 
 		_process_animation(get_process_delta_time())
 
@@ -229,7 +226,7 @@ func _process_animation(delta: float) -> void:
 		return
 
 	var frames_per_second: float = _current_library.get_framerate()
-	var seconds_per_frame: float = 1.0 / frames_per_second
+	var seconds_per_frame := 1.0 / frames_per_second
 	_frame_progress += absf(delta * frames_per_second * speed_scale)
 	while _frame_progress >= 1.0:
 		var frames_added := int(signf(speed_scale))
