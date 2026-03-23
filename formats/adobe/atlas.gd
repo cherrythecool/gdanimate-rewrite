@@ -9,6 +9,7 @@ extends AnimateSymbolLibrary
 	set(v):
 		folder_path = v
 		parse()
+		path_changed.emit()
 
 ## For more like SWF behavior, set to true.
 @export var movie_clips_play: bool = false:
@@ -30,8 +31,6 @@ var stage_transform: Transform2D = Transform2D.IDENTITY
 
 
 func parse() -> void:
-	#format = "adobe"
-
 	var base_dir: String = folder_path.get_base_dir()
 	var cache_path: String = "%s/animation_cache.res" % [base_dir]
 	if ResourceLoader.exists(cache_path):
@@ -141,6 +140,15 @@ func get_symbol_length(key: StringName) -> int:
 		return symbols[key].length
 
 	return 0
+
+
+func get_symbol_rect(key: StringName) -> Rect2:
+	# TODO: implement
+	return Rect2()
+
+
+func has_symbol(symbol: StringName) -> bool:
+	return symbols.has(symbol)
 
 
 func draw_symbol(target: AdobeSymbol, parent: RID,
