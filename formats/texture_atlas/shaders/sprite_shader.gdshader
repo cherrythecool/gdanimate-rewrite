@@ -12,11 +12,11 @@ shader_type canvas_item;
 
 const int BLEND_ALPHA = 1;
 const int BLEND_ERASE = 4;
-//const int BLEND_NORMAL = 10;
+const int BLEND_NORMAL = 10;
 //const int BLEND_LAYER = 7;
 //const int BLEND_SHADER = 13;
 
-// Thanks GDShader for no mat4 in shader instance uniforms!
+// no mat4 in shader instance uniforms
 instance uniform vec4 color_multipliers_0 = vec4(1.0, 0.0, 0.0, 0.0);
 instance uniform vec4 color_multipliers_1 = vec4(0.0, 1.0, 0.0, 0.0);
 instance uniform vec4 color_multipliers_2 = vec4(0.0, 0.0, 1.0, 0.0);
@@ -55,7 +55,7 @@ void fragment() {
 	if (blend_mode == BLEND_ALPHA || blend_mode == BLEND_ERASE) {
 		discard;
 	}
-	
+
 	mat4 color_multipliers = mat4(
 		color_multipliers_0,
 		color_multipliers_1,
@@ -63,16 +63,18 @@ void fragment() {
 		color_multipliers_3
 	);
 	COLOR = color_offsets + (COLOR * color_multipliers);
-	
-	vec3 screen_color = texture(SCREEN_TEXTURE, SCREEN_UV).rgb;
-	blend(BLEND_ADD, blend_additive(COLOR.rgb, screen_color))
-	blend(BLEND_DARKEN, blend_darken(COLOR.rgb, screen_color))
-	blend(BLEND_DIFFERENCE, blend_difference(COLOR.rgb, screen_color))
-	blend(BLEND_HARD_LIGHT, blend_overlay(COLOR.rgb, screen_color))
-	blend(BLEND_INVERT, blend_invert(screen_color))
-	blend(BLEND_LIGHTEN, blend_lighten(COLOR.rgb, screen_color))
-	blend(BLEND_MULTIPLY, blend_multiply(COLOR.rgb, screen_color))
-	blend(BLEND_OVERLAY, blend_overlay(screen_color, COLOR.rgb))
-	blend(BLEND_SCREEN, blend_screen(COLOR.rgb, screen_color))
-	blend(BLEND_SUBTRACT, blend_subtract(screen_color, COLOR.rgb))
+
+	if (blend_mode != BLEND_NORMAL) {
+		vec3 screen_color = texture(SCREEN_TEXTURE, SCREEN_UV).rgb;
+		blend(BLEND_ADD, blend_additive(COLOR.rgb, screen_color))
+		blend(BLEND_DARKEN, blend_darken(COLOR.rgb, screen_color))
+		blend(BLEND_DIFFERENCE, blend_difference(COLOR.rgb, screen_color))
+		blend(BLEND_HARD_LIGHT, blend_overlay(COLOR.rgb, screen_color))
+		blend(BLEND_INVERT, blend_invert(screen_color))
+		blend(BLEND_LIGHTEN, blend_lighten(COLOR.rgb, screen_color))
+		blend(BLEND_MULTIPLY, blend_multiply(COLOR.rgb, screen_color))
+		blend(BLEND_OVERLAY, blend_overlay(screen_color, COLOR.rgb))
+		blend(BLEND_SCREEN, blend_screen(COLOR.rgb, screen_color))
+		blend(BLEND_SUBTRACT, blend_subtract(screen_color, COLOR.rgb))
+	}
 }

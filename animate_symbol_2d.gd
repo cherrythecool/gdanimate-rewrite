@@ -120,6 +120,9 @@ var _frame_internal: int = 0:
 			queue_redraw()
 
 var _last_symbol_libraries: Array[AnimateSymbolLibrary]
+
+# Used to properly free child canvas items from the
+# rendering server when the animation switches
 var _internal_canvas_items: Array[RID]
 
 
@@ -179,16 +182,6 @@ func _validate_property(property: Dictionary) -> void:
 
 
 func _draw() -> void:
-	RenderingServer.canvas_item_clear(get_canvas_item())
-
-	for rid: RID in _internal_canvas_items:
-		if not rid.is_valid():
-			continue
-		RenderingServer.canvas_item_clear(rid)
-		RenderingServer.free_rid(rid)
-
-	_internal_canvas_items.clear()
-
 	if is_instance_valid(_current_library):
 		_current_library.draw_2d(self)
 
@@ -210,6 +203,19 @@ func reparse_current() -> void:
 		_current_library.parse()
 
 
+func _clear_canvas_item() -> void:
+	RenderingServer.canvas_item_clear(get_canvas_item())
+
+	for rid: RID in _internal_canvas_items:
+		if not rid.is_valid():
+			continue
+
+		RenderingServer.canvas_item_clear(rid)
+		RenderingServer.free_rid(rid)
+
+	_internal_canvas_items.clear()
+
+
 func _process_animation(delta: float) -> void:
 	if symbol_libraries.is_empty():
 		symbol_library_index = 0
@@ -221,7 +227,7 @@ func _process_animation(delta: float) -> void:
 		symbol_library_index = symbol_libraries.size() - 1
 	_current_library = symbol_libraries[symbol_library_index]
 
-	if (not is_instance_valid(_current_library)) or (not playing):
+	if (not is_instance_valid(_current_library)) or not playing:
 		_frame_progress = 0.0
 		return
 

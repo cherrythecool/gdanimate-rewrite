@@ -1,6 +1,39 @@
 @tool
-class_name AdobeAtlas
+class_name TextureAtlas
 extends AnimateSymbolLibrary
+
+
+enum BlendMode {
+	ADD = 0,
+	ALPHA = 1,
+	DARKEN = 2,
+	DIFFERENCE = 3,
+	ERASE = 4,
+	HARD_LIGHT = 5,
+	INVERT = 6,
+	LAYER = 7,
+	LIGHTEN = 8,
+	MULTIPLY = 9,
+	NORMAL = 10,
+	OVERLAY = 11,
+	SCREEN = 12,
+	SHADER = 13,
+	SUBTRACT = 14,
+}
+
+enum SymbolType {
+	GRAPHIC = 0,
+	MOVIE_CLIP
+	# TODO: BUTTON(s)
+}
+
+enum SymbolLoopMode {
+	LOOP = 0,
+	ONE_SHOT,
+	FREEZE_FRAME,
+	REVERSE_ONE_SHOT, # TODO: Implement
+	REVERSE_LOOP # TODO: Implement
+}
 
 
 ## Path to any file in the animation path (like Animation.json, spritemap1.json, etc),
@@ -8,6 +41,11 @@ extends AnimateSymbolLibrary
 @export_dir var folder_path: String = "":
 	set(v):
 		folder_path = v
+		if not folder_path.get_extension().is_empty():
+			folder_path = folder_path.get_base_dir()
+		elif folder_path.ends_with("/"):
+			folder_path = folder_path.left(-1)
+
 		parse()
 		path_changed.emit()
 
@@ -23,32 +61,31 @@ extends AnimateSymbolLibrary
 		clip_texture_uvs = v
 		redraw_requested.emit()
 
-var spritemap: Dictionary[StringName, AdobeAtlasSprite] = {}
-var symbols: Dictionary[StringName, AdobeSymbol] = {}
+var spritemap: Dictionary[StringName, TextureAtlasSprite] = {}
+var symbols: Dictionary[StringName, TextureAtlasSymbol] = {}
 var framerate: float = 24.0
 var stage_symbol: StringName = &""
 var stage_transform: Transform2D = Transform2D.IDENTITY
 
+var _internal_material: Material = null
+
 
 func parse() -> void:
-	var base_dir: String = folder_path.get_base_dir()
-	var cache_path: String = "%s/animation_cache.res" % [base_dir]
+	redraw_requested.emit()
+
+	var cache_path: String = "%s/animation_cache.res" % [folder_path]
 	if ResourceLoader.exists(cache_path):
-		var cached: AdobeAtlasCached = load(cache_path)
+		var cached: TextureAtlasCache = load(cache_path)
 		if is_instance_valid(cached):
-			spritemap = cached.spritemap
-			symbols = cached.symbols
-			framerate = cached.framerate
-			stage_symbol = cached.stage_symbol
-			stage_transform = cached.stage_transform
+			cached.apply_to_atlas(self)
 			return
 
 	spritemap.clear()
 	symbols.clear()
 
-	var animation_json: String = "%s/Animation.json" % [base_dir]
+	var animation_json: String = "%s/Animation.json" % [folder_path]
 	if not ResourceLoader.exists(animation_json):
-		printerr("Atlas path (%s) is missing Animation.json!" % [base_dir])
+		printerr("Atlas path (%s) is missing Animation.json!" % [folder_path])
 		return
 
 	load_spritemaps()
@@ -56,49 +93,50 @@ func parse() -> void:
 
 
 func cache() -> void:
-	var basename: String = folder_path.get_base_dir()
-	var cached: AdobeAtlasCached = AdobeAtlasCached.new()
-	cached.spritemap = spritemap
-	cached.symbols = symbols
-	cached.framerate = framerate
-	cached.stage_symbol = stage_symbol
-	cached.stage_transform = stage_transform
-	cached.take_over_path("%s/animation_cache.res" % [basename])
-	ResourceSaver.save(cached, "%s/animation_cache.res" % [basename], ResourceSaver.FLAG_COMPRESS + ResourceSaver.FLAG_REPLACE_SUBRESOURCE_PATHS)
+	TextureAtlasCache.save_from_atlas(self)
 
 
 func draw_2d(target: AnimateSymbol2D) -> void:
-	if stage_symbol.is_empty():
+	target._clear_canvas_item()
+
+	var drawn_symbol: StringName = target.symbol
+	var use_stage: bool = not symbols.has(target.symbol)
+	if use_stage and not stage_symbol.is_empty():
+		drawn_symbol = stage_symbol
+
+	if drawn_symbol.is_empty():
 		return
 
-	var symbol: String = target.symbol
-	var offset: Vector2 = target.offset
-	var items: Array[RID] = target._internal_canvas_items
-	var canvas_item: RID = target.get_canvas_item()
-	var frame: int = target.frame
-	var material: Material = target.material
+	var canvas_items: Array[RID] = target._internal_canvas_items
+	var root_item: RID = create_canvas_item(canvas_items)
+	RenderingServer.canvas_item_set_parent(
+		root_item,
+		target.get_canvas_item(),
+	)
+	RenderingServer.canvas_item_set_draw_behind_parent(root_item, true)
+	RenderingServer.canvas_item_set_use_parent_material(root_item, true)
 
-	var use_stage: bool = not symbols.has(symbol)
-	var key: StringName = stage_symbol if use_stage else symbol
-	var transform: Transform2D = Transform2D.IDENTITY
-	transform = transform.translated(offset)
-	if use_stage and stage_transform != Transform2D.IDENTITY:
+	var transform: Transform2D = Transform2D(0.0, target.offset)
+	if use_stage:
 		transform *= stage_transform
 
-	var stage_item: RID = RenderingServer.canvas_item_create()
-	items.push_back(stage_item)
-	RenderingServer.canvas_item_set_transform(stage_item, transform)
-	RenderingServer.canvas_item_set_parent(stage_item, canvas_item)
-	RenderingServer.canvas_item_set_draw_behind_parent(stage_item, true)
-	RenderingServer.canvas_item_set_use_parent_material(stage_item, true)
+	RenderingServer.canvas_item_set_transform(root_item, transform)
 
-	draw_symbol(symbols[key],
-		stage_item,
+	var material: Material = target.material
+	if not is_instance_valid(material):
+		if not is_instance_valid(_internal_material):
+			_internal_material = load("uid://bxdjijj35wput")
+
+		material = _internal_material
+
+	draw_symbol(
+		symbols[drawn_symbol],
+		root_item,
 		Transform2D.IDENTITY,
-		frame,
+		target.frame,
 		false,
-		items,
-		AdobeSymbolInstance.AdobeBlendMode.NORMAL,
+		canvas_items,
+		TextureAtlas.BlendMode.NORMAL,
 		material,
 		null,
 	)
@@ -109,28 +147,11 @@ func get_framerate() -> float:
 
 
 func get_filename() -> StringName:
-	return StringName(folder_path.get_base_dir().get_file())
+	return StringName(folder_path.get_file())
 
 
 func get_symbol_list() -> PackedStringArray:
 	return symbols.keys()
-
-
-func get_symbols() -> String:
-	var string: String = ""
-	var keys: Array = symbols.keys()
-	keys.sort_custom(func(a: Variant, b: Variant):
-		if a is StringName and b is StringName:
-			return a.to_lower() < b.to_lower()
-
-		return a < b
-	)
-	for symbol_name: StringName in keys:
-		string += "%s," % [symbol_name.json_escape()]
-	if not string.is_empty():
-		string.remove_char(string.length() - 1)
-
-	return ("" if string.is_empty() else " ,") + string
 
 
 func get_symbol_length(key: StringName) -> int:
@@ -151,23 +172,28 @@ func has_symbol(symbol: StringName) -> bool:
 	return symbols.has(symbol)
 
 
-func draw_symbol(target: AdobeSymbol, parent: RID,
-				t: Transform2D, frame: int,
-				is_clipper: bool, items: Array[RID],
-				blend_mode: AdobeSymbolInstance.AdobeBlendMode = AdobeSymbolInstance.AdobeBlendMode.NORMAL,
-				material: Material = null,
-				color_matrix: AdobeColorMatrix = null,) -> void:
+func draw_symbol(
+	target: TextureAtlasSymbol,
+	parent: RID,
+	t: Transform2D,
+	frame: int,
+	is_clipper: bool,
+	items: Array[RID],
+	blend_mode: TextureAtlas.BlendMode = TextureAtlas.BlendMode.NORMAL,
+	material: Material = null,
+	color_matrix: TextureAtlasColorMatrix = null,
+) -> void:
 	if frame > target.length - 1:
 		frame = target.length - 1
 
 	var to_push: Array[RID] = []
 	var clip_pushes: Dictionary[StringName, Array] = {}
 	var rids: Dictionary[StringName, RID] = {}
-	for layer: AdobeLayer in target.layers:
+	for layer: TextureAtlasLayer in target.layers:
 		var layer_rid: RID
 		var layer_parent: RID = parent
 		if not is_clipper:
-			layer_rid = RenderingServer.canvas_item_create()
+			layer_rid = create_canvas_item(items)
 			RenderingServer.canvas_item_set_use_parent_material(layer_rid, true)
 			rids.set(layer.name, layer_rid)
 
@@ -184,7 +210,7 @@ func draw_symbol(target: AdobeSymbol, parent: RID,
 			layer_rid = parent
 
 		var rendered: bool = false
-		for layer_frame: AdobeLayerFrame in layer.frames:
+		for layer_frame: TextureAtlasFrame in layer.frames:
 			if frame > layer_frame.starting_index + layer_frame.duration - 1:
 				continue
 			if frame < layer_frame.starting_index:
@@ -192,24 +218,24 @@ func draw_symbol(target: AdobeSymbol, parent: RID,
 
 			var difference: int = frame - layer_frame.starting_index
 			rendered = true
-			for element: AdobeDrawable in layer_frame.elements:
-				if element is AdobeSymbolInstance:
+			for element: TextureAtlasDrawable in layer_frame.elements:
+				if element is TextureAtlasSymbolInstance:
 					var symbol_frame: int = element.first_frame
-					if element.type == AdobeSymbolInstance.AdobeSymbolType.GRAPHIC:
+					if element.type == TextureAtlas.SymbolType.GRAPHIC:
 						match element.loop_mode:
-							AdobeSymbolInstance.AdobeSymbolLoopMode.LOOP:
+							TextureAtlas.SymbolLoopMode.LOOP:
 								symbol_frame = wrapi(symbol_frame + difference, 0, symbols[element.key].length)
-							AdobeSymbolInstance.AdobeSymbolLoopMode.ONE_SHOT:
+							TextureAtlas.SymbolLoopMode.ONE_SHOT:
 								symbol_frame = clampi(symbol_frame + difference, 0, symbols[element.key].length - 1)
-							AdobeSymbolInstance.AdobeSymbolLoopMode.FREEZE_FRAME:
+							TextureAtlas.SymbolLoopMode.FREEZE_FRAME:
 								symbol_frame = symbol_frame
-					elif element.type == AdobeSymbolInstance.AdobeSymbolType.MOVIE_CLIP:
+					elif element.type == TextureAtlas.SymbolType.MOVIE_CLIP:
 						if not movie_clips_play:
 							symbol_frame = element.first_frame
 						else:
 							symbol_frame = wrapi(symbol_frame + difference, 0, symbols[element.key].length)
 
-					var next_matrix: AdobeColorMatrix = color_matrix
+					var next_matrix: TextureAtlasColorMatrix = color_matrix
 					if next_matrix == null:
 						next_matrix = element.color_matrix
 					elif element.color_matrix != null:
@@ -223,15 +249,15 @@ func draw_symbol(target: AdobeSymbol, parent: RID,
 						items,
 						(
 							element.blend_mode
-							if blend_mode == AdobeSymbolInstance.AdobeBlendMode.NORMAL
+							if blend_mode == TextureAtlas.BlendMode.NORMAL
 							else blend_mode
 						),
 						material,
 						next_matrix
 					)
-				elif element is AdobeAtlasSprite:
+				elif element is TextureAtlasSprite:
 					draw_atlas_sprite(
-						element as AdobeAtlasSprite,
+						element as TextureAtlasSprite,
 						layer_rid,
 						t,
 					)
@@ -239,18 +265,18 @@ func draw_symbol(target: AdobeSymbol, parent: RID,
 		if (not is_clipper) and layer_parent == parent:
 			if rendered:
 				if is_instance_valid(material):
-					var use_material: bool = blend_mode != AdobeSymbolInstance.AdobeBlendMode.NORMAL
+					var use_material: bool = blend_mode != TextureAtlas.BlendMode.NORMAL
 					if not use_material:
 						use_material = color_matrix != null
-					var used_matrix: AdobeColorMatrix = color_matrix
+					var used_matrix: TextureAtlasColorMatrix = color_matrix
 					if used_matrix == null:
-						used_matrix = AdobeColorMatrix.new()
+						used_matrix = TextureAtlasColorMatrix.new()
 
 					if use_material:
-						var ignored_blends: Array[AdobeSymbolInstance.AdobeBlendMode] = [
-							AdobeSymbolInstance.AdobeBlendMode.NORMAL,
-							AdobeSymbolInstance.AdobeBlendMode.ALPHA,
-							AdobeSymbolInstance.AdobeBlendMode.ERASE,
+						var ignored_blends: Array[TextureAtlas.BlendMode] = [
+							TextureAtlas.BlendMode.NORMAL,
+							TextureAtlas.BlendMode.ALPHA,
+							TextureAtlas.BlendMode.ERASE,
 						]
 
 						if not ignored_blends.has(blend_mode):
@@ -270,7 +296,6 @@ func draw_symbol(target: AdobeSymbol, parent: RID,
 
 	var i: int = items.size() - 1
 	for item: RID in to_push:
-		items.push_back(item)
 		RenderingServer.canvas_item_set_parent(item, parent)
 		RenderingServer.canvas_item_set_draw_index(item, i)
 		i += 1
@@ -287,28 +312,34 @@ func draw_symbol(target: AdobeSymbol, parent: RID,
 			i += 1
 
 
-func draw_atlas_sprite(sprite: AdobeAtlasSprite, parent: RID, t: Transform2D) -> void:
+func draw_atlas_sprite(sprite: TextureAtlasSprite, parent: RID, t: Transform2D) -> void:
 	var transform: Transform2D = t * sprite.transform
 	if sprite.rotated:
 		transform *= Transform2D(
 			-PI / 2.0, #deg_to_rad(-90.0),
-			Vector2(0.0, sprite.region.size.x)
+			Vector2(
+				0.0,
+				sprite.region.size.x,
+			),
 		)
 
 	RenderingServer.canvas_item_add_set_transform(parent, transform)
 	RenderingServer.canvas_item_add_texture_rect_region(
 		parent,
-		Rect2(Vector2.ZERO, Vector2(sprite.region.size)),
+		Rect2(
+			Vector2.ZERO,
+			Vector2(sprite.region.size),
+		),
 		sprite.texture.get_rid(),
 		Rect2(sprite.region),
 		Color.WHITE,
 		false,
-		clip_texture_uvs
+		clip_texture_uvs,
 	)
 
 
 func load_spritemaps() -> void:
-	var files: PackedStringArray = ResourceLoader.list_directory(folder_path.get_base_dir())
+	var files: PackedStringArray = ResourceLoader.list_directory(folder_path)
 	for file: String in files:
 		if not file.begins_with("spritemap"):
 			continue
@@ -319,61 +350,39 @@ func load_spritemaps() -> void:
 
 
 func load_spritemap(spritemap_name: String) -> void:
-	var base_dir: String = folder_path.get_base_dir()
-	var raw_json: String = FileAccess.get_file_as_string("%s/%s" % [base_dir, spritemap_name])
+	var raw_json: String = FileAccess.get_file_as_string("%s/%s" % [folder_path, spritemap_name])
 	var json: Variant = JSON.parse_string(raw_json)
 	if json == null:
-		printerr("Failed to parse %s/%s as JSON!" % [base_dir, spritemap_name])
+		printerr("Failed to parse %s/%s as JSON!" % [folder_path, spritemap_name])
 		return
 
-	var texture: Texture2D = load("%s/%s.png" % [base_dir, spritemap_name.get_basename()])
+	var texture: Texture2D = load("%s/%s.png" % [folder_path, spritemap_name.get_basename()])
 	if not is_instance_valid(texture):
-		printerr("Failed to load %s/%s.png as Texture2D!" % [base_dir, spritemap_name.get_basename()])
+		printerr("Failed to load %s/%s.png as Texture2D!" % [folder_path, spritemap_name.get_basename()])
 		return
 
-	var data: Dictionary = json as Dictionary
-	if not data.has("ATLAS"):
-		printerr("Malformed spritemap json has no ATLAS property!")
+	if json is not Dictionary:
+		printerr("Spritemap JSON must be a Dictionary!")
 		return
-	data = data.get("ATLAS")
 
-	var image: Image = null
-	var sprites: Array = data.get("SPRITES", [])
-	for sprite: Dictionary in sprites:
-		var sprite_data: Dictionary = sprite.get("SPRITE", {})
-		var atlas_sprite: AdobeAtlasSprite = AdobeAtlasSprite.new()
-		atlas_sprite.region = Rect2i(
-			Vector2i(
-				int(sprite_data.get("x", 0.0)),
-				int(sprite_data.get("y", 0.0))
-			),
-			Vector2i(
-				int(sprite_data.get("w", 0.0)),
-				int(sprite_data.get("h", 0.0))
-			)
-		)
-		atlas_sprite.rotated = sprite_data.get("rotated", false)
-		atlas_sprite.texture = texture
-
-		spritemap.set(StringName(sprite_data.get("name", "")), atlas_sprite)
+	TextureAtlasSpritemap.parse_spritemap(json, spritemap, texture)
 
 
 func load_animation() -> void:
-	var base_dir: String = folder_path.get_base_dir()
-	var raw_json: String = FileAccess.get_file_as_string("%s/Animation.json" % [base_dir])
+	var raw_json: String = FileAccess.get_file_as_string("%s/Animation.json" % [folder_path])
 	var json: Variant = JSON.parse_string(raw_json)
 	if json == null:
-		printerr("Failed to parse %s/Animation.json as JSON!" % [base_dir])
+		printerr("Failed to parse %s/Animation.json as JSON!" % [folder_path])
 		return
 
-	var data: Dictionary = json as Dictionary
+	var data: Dictionary = json
 	var optimized: bool = data.has("AN")
 
-	if ResourceLoader.exists("%s/metadata.json" % [base_dir]):
-		var raw_meta: String = FileAccess.get_file_as_string("%s/metadata.json" % [base_dir])
+	if ResourceLoader.exists("%s/metadata.json" % [folder_path]):
+		var raw_meta: String = FileAccess.get_file_as_string("%s/metadata.json" % [folder_path])
 		var json_meta: Variant = JSON.parse_string(raw_meta)
 		if json_meta == null:
-			printerr("Failed to parse %s/metadata.json as JSON!" % [base_dir])
+			printerr("Failed to parse %s/metadata.json as JSON!" % [folder_path])
 			return
 
 		var meta: Dictionary = json_meta as Dictionary
@@ -386,15 +395,15 @@ func load_animation() -> void:
 		var symbol_dict: Dictionary = get_pair(optimized, data, "SYMBOL_DICTIONARY", "SD")
 		var symbol_array: Array = get_pair(optimized, symbol_dict, "Symbols", "S")
 		load_symbols(optimized, symbol_array)
-	elif DirAccess.dir_exists_absolute("%s/LIBRARY" % [base_dir]):
-		var dir: DirAccess = DirAccess.open("%s/LIBRARY" % [base_dir])
+	elif DirAccess.dir_exists_absolute("%s/LIBRARY" % [folder_path]):
+		var dir: DirAccess = DirAccess.open("%s/LIBRARY" % [folder_path])
 		if dir == null:
-			printerr("Failed to open %s/LIBRARY directory!" % [base_dir])
+			printerr("Failed to open %s/LIBRARY directory!" % [folder_path])
 			return
 
 		load_symbol_directory(optimized, dir)
 	else:
-		printerr("Failed to load symbol library for %s (neither SYMBOL_DICTIONARY, SD, or /LIBRARY folder exist)!" % [base_dir])
+		printerr("Failed to load symbol library for %s (neither SYMBOL_DICTIONARY, SD, or /LIBRARY folder exist)!" % [folder_path])
 		return
 
 	var anim: Dictionary = get_pair(optimized, data, "ANIMATION", "AN")
@@ -447,15 +456,15 @@ func load_symbol(optimized: bool, symbol: Dictionary) -> void:
 	var key: String = get_pair(optimized, symbol, "SYMBOL_name", "SN")
 	var timeline: Dictionary = get_pair(optimized, symbol, "TIMELINE", "TL")
 	if has_pair(optimized, timeline, "LAYERS", "L"):
-		var gd_symbol: AdobeSymbol = load_layers(optimized,
+		var gd_symbol: TextureAtlasSymbol = load_layers(optimized,
 				get_pair(optimized, timeline, "LAYERS", "L"))
 		symbols[StringName(key)] = gd_symbol
 
 
-func load_layers(optimized: bool, layers: Array) -> AdobeSymbol:
-	var gd_symbol: AdobeSymbol = AdobeSymbol.new()
+func load_layers(optimized: bool, layers: Array) -> TextureAtlasSymbol:
+	var gd_symbol: TextureAtlasSymbol = TextureAtlasSymbol.new()
 	for layer: Dictionary in layers:
-		var gd_layer: AdobeLayer = AdobeLayer.new()
+		var gd_layer: TextureAtlasLayer = TextureAtlasLayer.new()
 		gd_layer.name = get_pair(optimized, layer, "Layer_name", "LN")
 		if has_pair(optimized, layer, "Layer_type", "LT"):
 			if optimized:
@@ -480,8 +489,8 @@ func load_layers(optimized: bool, layers: Array) -> AdobeSymbol:
 	return gd_symbol
 
 
-func load_frame(optimized: bool, frame: Dictionary) -> AdobeLayerFrame:
-	var gd_frame: AdobeLayerFrame = AdobeLayerFrame.new()
+func load_frame(optimized: bool, frame: Dictionary) -> TextureAtlasFrame:
+	var gd_frame: TextureAtlasFrame = TextureAtlasFrame.new()
 	gd_frame.starting_index = get_pair(optimized, frame, "index", "I")
 	gd_frame.duration = get_pair(optimized, frame, "duration", "DU")
 
@@ -495,8 +504,8 @@ func load_frame(optimized: bool, frame: Dictionary) -> AdobeLayerFrame:
 	return gd_frame
 
 
-func load_symbol_instance(optimized: bool, element: Dictionary) -> AdobeSymbolInstance:
-	var symbol_instance: AdobeSymbolInstance = AdobeSymbolInstance.new()
+func load_symbol_instance(optimized: bool, element: Dictionary) -> TextureAtlasSymbolInstance:
+	var symbol_instance: TextureAtlasSymbolInstance = TextureAtlasSymbolInstance.new()
 	element = get_pair(optimized, element, "SYMBOL_Instance", "SI")
 
 	var key: String = get_pair(optimized, element, "SYMBOL_name", "SN")
@@ -512,62 +521,62 @@ func load_symbol_instance(optimized: bool, element: Dictionary) -> AdobeSymbolIn
 		symbol_instance.transform = parse_matrix(get_pair(optimized, element, "Matrix3D", "M3D"))
 
 	if has_pair(optimized, element, "blend", "B"):
-		symbol_instance.blend_mode = get_pair(optimized, element, "blend", "B") as AdobeSymbolInstance.AdobeBlendMode
+		symbol_instance.blend_mode = get_pair(optimized, element, "blend", "B") as TextureAtlas.BlendMode
 
 	if has_pair(optimized, element, "color", "C"):
-		symbol_instance.color_matrix = AdobeColorMatrix.parse(optimized, get_pair(optimized, element, "color", "C"))
+		symbol_instance.color_matrix = TextureAtlasColorMatrix.parse(optimized, get_pair(optimized, element, "color", "C"))
 
 	if has_pair(optimized, element, "loop", "LP"):
 		var loop_mode: String = get_pair(optimized, element, "loop", "LP")
 		if optimized:
 			match loop_mode:
 				"PO":
-					symbol_instance.loop_mode = AdobeSymbolInstance.AdobeSymbolLoopMode.ONE_SHOT
+					symbol_instance.loop_mode = TextureAtlas.SymbolLoopMode.ONE_SHOT
 				"SF":
-					symbol_instance.loop_mode = AdobeSymbolInstance.AdobeSymbolLoopMode.FREEZE_FRAME
+					symbol_instance.loop_mode = TextureAtlas.SymbolLoopMode.FREEZE_FRAME
 				"LP":
-					symbol_instance.loop_mode = AdobeSymbolInstance.AdobeSymbolLoopMode.LOOP
+					symbol_instance.loop_mode = TextureAtlas.SymbolLoopMode.LOOP
 				_:
-					symbol_instance.loop_mode = AdobeSymbolInstance.AdobeSymbolLoopMode.LOOP
+					symbol_instance.loop_mode = TextureAtlas.SymbolLoopMode.LOOP
 		else:
 			match loop_mode:
 				"playonce":
-					symbol_instance.loop_mode = AdobeSymbolInstance.AdobeSymbolLoopMode.ONE_SHOT
+					symbol_instance.loop_mode = TextureAtlas.SymbolLoopMode.ONE_SHOT
 				"singleframe":
-					symbol_instance.loop_mode = AdobeSymbolInstance.AdobeSymbolLoopMode.FREEZE_FRAME
+					symbol_instance.loop_mode = TextureAtlas.SymbolLoopMode.FREEZE_FRAME
 				"loop":
-					symbol_instance.loop_mode = AdobeSymbolInstance.AdobeSymbolLoopMode.LOOP
+					symbol_instance.loop_mode = TextureAtlas.SymbolLoopMode.LOOP
 				_:
-					symbol_instance.loop_mode = AdobeSymbolInstance.AdobeSymbolLoopMode.LOOP
+					symbol_instance.loop_mode = TextureAtlas.SymbolLoopMode.LOOP
 	else:
-		symbol_instance.loop_mode = AdobeSymbolInstance.AdobeSymbolLoopMode.LOOP
+		symbol_instance.loop_mode = TextureAtlas.SymbolLoopMode.LOOP
 
 	var type: String = get_pair(optimized, element, "symbolType", "ST")
 	if optimized:
 		symbol_instance.type = (
-			AdobeSymbolInstance.AdobeSymbolType.MOVIE_CLIP
+			TextureAtlas.SymbolType.MOVIE_CLIP
 			if type == "MC" else
-			AdobeSymbolInstance.AdobeSymbolType.GRAPHIC
+			TextureAtlas.SymbolType.GRAPHIC
 		)
 	else:
 		symbol_instance.type = (
-			AdobeSymbolInstance.AdobeSymbolType.MOVIE_CLIP
+			TextureAtlas.SymbolType.MOVIE_CLIP
 			if type == "movieclip" else
-			AdobeSymbolInstance.AdobeSymbolType.GRAPHIC
+			TextureAtlas.SymbolType.GRAPHIC
 		)
 
 	return symbol_instance
 
 
-func load_atlas_sprite(optimized: bool, element: Dictionary) -> AdobeAtlasSprite:
+func load_atlas_sprite(optimized: bool, element: Dictionary) -> TextureAtlasSprite:
 	element = get_pair(optimized, element, "ATLAS_SPRITE_instance", "ASI")
 
 	var key_raw: String = get_pair(optimized, element, "name", "N")
 	var key: StringName = StringName(key_raw)
 	if not spritemap.has(key):
-		return AdobeAtlasSprite.new()
+		return TextureAtlasSprite.new()
 
-	var sprite: AdobeAtlasSprite = spritemap[key].duplicate()
+	var sprite: TextureAtlasSprite = spritemap[key].duplicate()
 	if has_pair(optimized, element, "Matrix", "MX"):
 		sprite.transform = parse_matrix(get_pair(optimized, element, "Matrix", "MX"))
 	else:
@@ -609,3 +618,9 @@ func has_pair(optimized: bool, dict: Dictionary, unoptim: String, optim: String)
 
 func get_pair(optimized: bool, dict: Dictionary, unoptim: String, optim: String) -> Variant:
 	return dict.get(optim if optimized else unoptim)
+
+
+func create_canvas_item(items: Array[RID]) -> RID:
+	var rid: RID = RenderingServer.canvas_item_create()
+	items.append(rid)
+	return rid

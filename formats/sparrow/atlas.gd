@@ -113,6 +113,8 @@ func cache() -> void:
 
 
 func draw_2d(target: AnimateSymbol2D) -> void:
+	target._clear_canvas_item()
+
 	var sparrow_frame: SparrowFrame = SparrowFrame.get_filtered_frame(
 		target.symbol,
 		target.frame,

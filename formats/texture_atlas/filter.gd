@@ -1,5 +1,5 @@
+class_name TextureAtlasFilter
 extends Resource
-class_name AdobeFilter
 
 
 enum AdobeFilterType {
