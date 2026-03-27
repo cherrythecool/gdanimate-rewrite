@@ -17,4 +17,4 @@ func calculate_bounding_box() -> void:
 			Vector2(0.0, region.size.x)
 		)
 
-	bounding_box = t * Rect2(Vector2.ZERO, Vector2(region.size))
+	bounding_box = t * Rect2(Vector2.ZERO, region.size)

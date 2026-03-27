@@ -15,7 +15,7 @@ var bounding_box := Rect2():
 
 
 func calculate_bounding_box() -> void:
-	var rect: Rect2 = Rect2()
+	var rect := Rect2()
 	for layer: TextureAtlasLayer in layers:
 		if layer.clipping:
 			continue

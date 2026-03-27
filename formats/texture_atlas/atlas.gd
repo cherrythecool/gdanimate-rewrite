@@ -91,6 +91,13 @@ func parse() -> void:
 	TextureAtlasSpritemap.load_spritemaps(folder, spritemap)
 	load_animation()
 
+	for symbol: TextureAtlasSymbol in symbols.values():
+		for layer: TextureAtlasLayer in symbol.layers:
+			for frame: TextureAtlasFrame in layer.frames:
+				for element: TextureAtlasDrawable in frame.elements:
+					if element is TextureAtlasSymbolInstance:
+						element.symbol = symbols[element.key]
+
 
 func cache() -> void:
 	TextureAtlasCache.save_from_atlas(self)
@@ -117,6 +124,12 @@ func draw_2d(target: AnimateSymbol2D) -> void:
 	RenderingServer.canvas_item_set_use_parent_material(root_item, true)
 
 	var transform: Transform2D = Transform2D(0.0, target.offset)
+	if target.centered:
+		var rect: Rect2 = get_symbol_rect(drawn_symbol)
+		transform = transform.translated(
+			-rect.position - (rect.size / 2.0),
+		)
+
 	if use_stage:
 		transform *= stage_transform
 
@@ -168,8 +181,10 @@ func get_symbol_length(key: StringName) -> int:
 
 
 func get_symbol_rect(key: StringName) -> Rect2:
-	# TODO: implement
-	return Rect2()
+	if not symbols.has(key):
+		return Rect2()
+
+	return symbols[key].bounding_box
 
 
 func has_symbol(symbol: StringName) -> bool:
@@ -310,7 +325,6 @@ func draw_symbol(
 
 		i = items.size() - 1
 		for item: RID in array:
-			items.push_back(item)
 			RenderingServer.canvas_item_set_parent(item, clip_parent)
 			RenderingServer.canvas_item_set_draw_index(item, i)
 			i += 1
