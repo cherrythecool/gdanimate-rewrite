@@ -125,7 +125,11 @@ func draw_2d(target: AnimateSymbol2D) -> void:
 	var material: Material = target.material
 	if not is_instance_valid(material):
 		if not is_instance_valid(_internal_material):
-			_internal_material = load("uid://bxdjijj35wput")
+			if not ResourceLoader.exists("uid://bxdjijj35wput"):
+				# Fallback in case UIDs break I guess?
+				_internal_material = load("res://addons/gdanimate/formats/texture_atlas/shaders/sprite_material.tres")
+			else:
+				_internal_material = load("uid://bxdjijj35wput")
 
 		material = _internal_material
 
