@@ -38,13 +38,13 @@ enum SymbolLoopMode {
 
 ## Path to any file in the animation path (like Animation.json, spritemap1.json, etc),
 ## or the folder that contains those files.
-@export_dir var folder_path: String = "":
+@export_dir var folder: String = "":
 	set(v):
-		folder_path = v
-		if not folder_path.get_extension().is_empty():
-			folder_path = folder_path.get_base_dir()
-		elif folder_path.ends_with("/"):
-			folder_path = folder_path.left(-1)
+		folder = v
+		if not folder.get_extension().is_empty():
+			folder = folder.get_base_dir()
+		elif folder.ends_with("/"):
+			folder = folder.left(-1)
 
 		parse()
 		path_changed.emit()
@@ -73,7 +73,7 @@ var _internal_material: Material = null
 func parse() -> void:
 	redraw_requested.emit()
 
-	var cache_path: String = "%s/animation_cache.res" % [folder_path]
+	var cache_path: String = "%s/animation_cache.res" % [folder]
 	if ResourceLoader.exists(cache_path):
 		var cached: TextureAtlasCache = load(cache_path)
 		if is_instance_valid(cached):
@@ -83,12 +83,12 @@ func parse() -> void:
 	spritemap.clear()
 	symbols.clear()
 
-	var animation_json: String = "%s/Animation.json" % [folder_path]
+	var animation_json: String = "%s/Animation.json" % [folder]
 	if not ResourceLoader.exists(animation_json):
-		printerr("Atlas path (%s) is missing Animation.json!" % [folder_path])
+		printerr("Atlas path (%s) is missing Animation.json!" % [folder])
 		return
 
-	load_spritemaps()
+	TextureAtlasSpritemap.load_spritemaps(folder, spritemap)
 	load_animation()
 
 
@@ -104,7 +104,7 @@ func draw_2d(target: AnimateSymbol2D) -> void:
 	if use_stage and not stage_symbol.is_empty():
 		drawn_symbol = stage_symbol
 
-	if drawn_symbol.is_empty():
+	if not symbols.has(drawn_symbol):
 		return
 
 	var canvas_items: Array[RID] = target._internal_canvas_items
@@ -151,7 +151,7 @@ func get_framerate() -> float:
 
 
 func get_filename() -> StringName:
-	return StringName(folder_path.get_file())
+	return StringName(folder.get_file())
 
 
 func get_symbol_list() -> PackedStringArray:
@@ -342,51 +342,21 @@ func draw_atlas_sprite(sprite: TextureAtlasSprite, parent: RID, t: Transform2D) 
 	)
 
 
-func load_spritemaps() -> void:
-	var files: PackedStringArray = ResourceLoader.list_directory(folder_path)
-	for file: String in files:
-		if not file.begins_with("spritemap"):
-			continue
-		if not file.get_extension() == "json":
-			continue
-
-		load_spritemap(file)
-
-
-func load_spritemap(spritemap_name: String) -> void:
-	var raw_json: String = FileAccess.get_file_as_string("%s/%s" % [folder_path, spritemap_name])
-	var json: Variant = JSON.parse_string(raw_json)
-	if json == null:
-		printerr("Failed to parse %s/%s as JSON!" % [folder_path, spritemap_name])
-		return
-
-	var texture: Texture2D = load("%s/%s.png" % [folder_path, spritemap_name.get_basename()])
-	if not is_instance_valid(texture):
-		printerr("Failed to load %s/%s.png as Texture2D!" % [folder_path, spritemap_name.get_basename()])
-		return
-
-	if json is not Dictionary:
-		printerr("Spritemap JSON must be a Dictionary!")
-		return
-
-	TextureAtlasSpritemap.parse_spritemap(json, spritemap, texture)
-
-
 func load_animation() -> void:
-	var raw_json: String = FileAccess.get_file_as_string("%s/Animation.json" % [folder_path])
+	var raw_json: String = FileAccess.get_file_as_string("%s/Animation.json" % [folder])
 	var json: Variant = JSON.parse_string(raw_json)
 	if json == null:
-		printerr("Failed to parse %s/Animation.json as JSON!" % [folder_path])
+		printerr("Failed to parse %s/Animation.json as JSON!" % [folder])
 		return
 
 	var data: Dictionary = json
 	var optimized: bool = data.has("AN")
 
-	if ResourceLoader.exists("%s/metadata.json" % [folder_path]):
-		var raw_meta: String = FileAccess.get_file_as_string("%s/metadata.json" % [folder_path])
+	if ResourceLoader.exists("%s/metadata.json" % [folder]):
+		var raw_meta: String = FileAccess.get_file_as_string("%s/metadata.json" % [folder])
 		var json_meta: Variant = JSON.parse_string(raw_meta)
 		if json_meta == null:
-			printerr("Failed to parse %s/metadata.json as JSON!" % [folder_path])
+			printerr("Failed to parse %s/metadata.json as JSON!" % [folder])
 			return
 
 		var meta: Dictionary = json_meta as Dictionary
@@ -399,15 +369,15 @@ func load_animation() -> void:
 		var symbol_dict: Dictionary = get_pair(optimized, data, "SYMBOL_DICTIONARY", "SD")
 		var symbol_array: Array = get_pair(optimized, symbol_dict, "Symbols", "S")
 		load_symbols(optimized, symbol_array)
-	elif DirAccess.dir_exists_absolute("%s/LIBRARY" % [folder_path]):
-		var dir: DirAccess = DirAccess.open("%s/LIBRARY" % [folder_path])
+	elif DirAccess.dir_exists_absolute("%s/LIBRARY" % [folder]):
+		var dir: DirAccess = DirAccess.open("%s/LIBRARY" % [folder])
 		if dir == null:
-			printerr("Failed to open %s/LIBRARY directory!" % [folder_path])
+			printerr("Failed to open %s/LIBRARY directory!" % [folder])
 			return
 
 		load_symbol_directory(optimized, dir)
 	else:
-		printerr("Failed to load symbol library for %s (neither SYMBOL_DICTIONARY, SD, or /LIBRARY folder exist)!" % [folder_path])
+		printerr("Failed to load symbol library for %s (neither SYMBOL_DICTIONARY, SD, or /LIBRARY folder exist)!" % [folder])
 		return
 
 	var anim: Dictionary = get_pair(optimized, data, "ANIMATION", "AN")
@@ -509,7 +479,7 @@ func load_frame(optimized: bool, frame: Dictionary) -> TextureAtlasFrame:
 
 
 func load_symbol_instance(optimized: bool, element: Dictionary) -> TextureAtlasSymbolInstance:
-	var symbol_instance: TextureAtlasSymbolInstance = TextureAtlasSymbolInstance.new()
+	var symbol_instance := TextureAtlasSymbolInstance.new()
 	element = get_pair(optimized, element, "SYMBOL_Instance", "SI")
 
 	var key: String = get_pair(optimized, element, "SYMBOL_name", "SN")

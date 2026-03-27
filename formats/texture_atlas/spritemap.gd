@@ -2,6 +2,67 @@ class_name TextureAtlasSpritemap
 extends Object
 
 
+static func load_spritemaps(
+	folder: String,
+	output_dict: Dictionary[StringName, TextureAtlasSprite],
+) -> void:
+	var files: PackedStringArray = ResourceLoader.list_directory(folder)
+	for file: String in files:
+		if not file.begins_with("spritemap"):
+			continue
+		if not file.get_extension() == "json":
+			continue
+
+		load_spritemap(
+			"%s/%s" % [
+				folder,
+				file,
+			],
+			output_dict
+		)
+
+
+static func load_spritemap(
+	path: String,
+	output_dict: Dictionary[StringName, TextureAtlasSprite],
+) -> void:
+	var raw_json: String = FileAccess.get_file_as_string(path)
+	var json: Variant = JSON.parse_string(raw_json)
+	if json == null:
+		printerr("Failed to parse %s as JSON!" % [path])
+		return
+
+	if json is not Dictionary:
+		printerr("Spritemap JSON must be a Dictionary!")
+		return
+
+	json = json as Dictionary
+
+	var metadata: Variant = json.get("meta", {})
+	var texture: Texture2D
+	if metadata is Dictionary and metadata.has("image"):
+		var texture_path: String = "%s/%s" % [
+			path.get_base_dir(),
+			metadata.get("image"),
+		]
+		texture_path = ResourceUID.path_to_uid(texture_path)
+
+		texture = load(texture_path)
+		if not is_instance_valid(texture):
+			printerr("Failed to load %s as Texture2D!" % [texture_path])
+			return
+	else:
+		var texture_path: String = "%s.png" % [path.get_basename()]
+		texture_path = ResourceUID.path_to_uid(texture_path)
+
+		texture = load(texture_path)
+		if not is_instance_valid(texture):
+			printerr("Failed to load %s as Texture2D!" % [texture_path])
+			return
+
+	parse_spritemap(json, output_dict, texture)
+
+
 static func parse_spritemap(
 	json_data: Dictionary,
 	output_dict: Dictionary[StringName, TextureAtlasSprite],

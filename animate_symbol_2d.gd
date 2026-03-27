@@ -184,6 +184,8 @@ func _validate_property(property: Dictionary) -> void:
 func _draw() -> void:
 	if is_instance_valid(_current_library):
 		_current_library.draw_2d(self)
+	else:
+		_clear_canvas_item()
 
 
 func get_animation_length() -> int:
@@ -278,8 +280,11 @@ func _process_animation(delta: float) -> void:
 func _on_symbols_changed() -> void:
 	notify_property_list_changed()
 
-	if is_instance_valid(_current_library) and _current_library.has_symbol(symbol):
-		return
+	if is_instance_valid(_current_library):
+		var has_symbol: bool = _current_library.has_symbol(symbol)
+		var no_symbols: bool = _current_library.get_symbol_list().is_empty()
+		if has_symbol or no_symbols:
+			return
 
 	symbol = &""
 
