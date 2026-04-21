@@ -72,10 +72,13 @@ void fragment() {
 		color_multipliers_2,
 		color_multipliers_3
 	);
+
+	float original_alpha = COLOR.a;
 	COLOR = color_offsets + (COLOR * color_multipliers);
 
-	if (blend_mode > -1) {
+	if (blend_mode > -1 && blend_mode != 10) {
 		vec4 screen_c = texture(SCREEN_TEXTURE, SCREEN_UV);
+
 		if (blend_mode == 2) {
 			COLOR.rgb = darken(COLOR.rgb, screen_c.rgb);
 		} else if (blend_mode == 9) {
@@ -85,10 +88,16 @@ void fragment() {
 		} else if (blend_mode == 12) {
 			COLOR.rgb = screen(COLOR.rgb, screen_c.rgb);
 		} else if (blend_mode == 11) {
+			COLOR.a = original_alpha;
 			COLOR.rgb = overlay(screen_c.rgb, COLOR.rgb);
 		} else if (blend_mode == 5) {
 			COLOR.rgb = overlay(COLOR.rgb, screen_c.rgb);
 		} else if (blend_mode == 0) {
+			// TODO: Maybe apply this to the other
+			// blend modes too, it might need different
+			// adjustments per blend mode though
+			COLOR.rgb *= COLOR.a;
+			COLOR.a = 1.0;
 			COLOR.rgb = add(COLOR.rgb, screen_c.rgb);
 		} else if (blend_mode == 14) {
 			COLOR.rgb = subtract(screen_c.rgb, COLOR.rgb);
