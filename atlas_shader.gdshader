@@ -11,19 +11,19 @@ instance uniform vec4 color_offsets = vec4(0.0);
 
 instance uniform int blend_mode : hint_enum(
 	"ADD",
-	"ALPHA",
+	"ALPHA", // Not implemented, just per Flash n' stuff
 	"DARKEN",
 	"DIFFERENCE",
-	"ERASE",
+	"ERASE", // Not implemented, just per Flash n' stuff
 	"HARD LIGHT",
 	"INVERT",
-	"LAYER", // Not implemented, just per BTA
+	"LAYER", // Not implemented, just per Flash n' stuff
 	"LIGHTEN",
 	"MULTIPLY",
 	"NORMAL",
 	"OVERLAY",
 	"SCREEN",
-	"SHADER", // Not implemented, just per BTA
+	"SHADER", // Not implemented, just per Flash n' stuff
 	"SUBTRACT"
 ) = 10;
 
@@ -88,7 +88,6 @@ void fragment() {
 		} else if (blend_mode == 12) {
 			COLOR.rgb = screen(COLOR.rgb, screen_c.rgb);
 		} else if (blend_mode == 11) {
-			COLOR.a = original_alpha;
 			COLOR.rgb = overlay(screen_c.rgb, COLOR.rgb);
 		} else if (blend_mode == 5) {
 			COLOR.rgb = overlay(COLOR.rgb, screen_c.rgb);
