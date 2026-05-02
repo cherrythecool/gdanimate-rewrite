@@ -187,6 +187,8 @@ func draw_symbol(target: AdobeSymbol, parent: RID,
 		var layer_parent: RID = parent
 		if not is_clipper:
 			layer_rid = RenderingServer.canvas_item_create()
+			items.push_back(layer_rid)
+
 			RenderingServer.canvas_item_set_use_parent_material(layer_rid, true)
 			rids.set(layer.name, layer_rid)
 
