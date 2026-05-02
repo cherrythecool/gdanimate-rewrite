@@ -200,9 +200,13 @@ func _draw() -> void:
 		return
 
 	RenderingServer.canvas_item_clear(get_canvas_item())
+
 	for rid: RID in internal_canvas_items:
-		RenderingServer.canvas_item_clear(rid)
+		if not rid.is_valid():
+			continue
+
 		RenderingServer.free_rid(rid)
+
 	internal_canvas_items.clear()
 
 	match atlas.format:
