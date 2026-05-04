@@ -7,6 +7,7 @@ class_name AnimateDrawInfo
 @export var offset: Vector2 = Vector2.ZERO
 @export var transform: Transform2D = Transform2D.IDENTITY
 @export var material: Material = null
+@export var additive_material: Material = null
 @export var screen_transform: Transform2D = Transform2D.IDENTITY
 
 var items: Array[RID]

@@ -29,6 +29,10 @@ func get_framerate() -> float:
 	return 24.0
 
 
+func get_base_dir() -> String:
+	return "Unknown"
+
+
 func get_filename() -> String:
 	return "Unknown"
 

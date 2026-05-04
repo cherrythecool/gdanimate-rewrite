@@ -81,7 +81,7 @@ func cache() -> void:
 	cached.stage_symbol = stage_symbol
 	cached.stage_transform = stage_transform
 	cached.take_over_path("%s/animation_cache.res" % [base_dir])
-	ResourceSaver.save(cached, "%s/animation_cache.res" % [base_dir], ResourceSaver.FLAG_COMPRESS + ResourceSaver.FLAG_REPLACE_SUBRESOURCE_PATHS)
+	ResourceSaver.save(cached, "%s/animation_cache.res" % [base_dir], ResourceSaver.FLAG_COMPRESS | ResourceSaver.FLAG_REPLACE_SUBRESOURCE_PATHS)
 
 
 func draw_on(canvas_item: RID, draw_info: AnimateDrawInfo) -> void:
@@ -102,6 +102,8 @@ func draw_on(canvas_item: RID, draw_info: AnimateDrawInfo) -> void:
 			backbuffer_cache.clear()
 			use_backbuffer_cache = false
 			return
+
+		RenderingServer.canvas_item_set_transform(draw_info.items[0], transform)
 
 		for cached: Dictionary in backbuffer_cache:
 			RenderingServer.canvas_item_set_copy_to_backbuffer(
@@ -132,11 +134,16 @@ func draw_on(canvas_item: RID, draw_info: AnimateDrawInfo) -> void:
 		null,
 		Rect2(),
 		draw_info.screen_transform * transform,
+		draw_info.additive_material,
 	)
 
 
 func get_framerate() -> float:
 	return framerate
+
+
+func get_base_dir() -> String:
+	return folder_path.get_base_dir()
 
 
 func get_filename() -> String:
@@ -163,8 +170,10 @@ func get_symbols() -> String:
 func get_length_of(symbol: StringName) -> int:
 	if not symbols.has(symbol):
 		symbol = stage_symbol
+
 	if symbols.has(symbol):
 		return symbols[symbol].length
+
 	return 0
 
 
@@ -175,7 +184,8 @@ func draw_symbol(target: AdobeSymbol, parent: RID,
 				material: Material = null,
 				color_matrix: AdobeColorMatrix = null,
 				screen_rect: Rect2 = Rect2(),
-				screen_transform: Transform2D = Transform2D.IDENTITY,) -> Rect2:
+				screen_transform: Transform2D = Transform2D.IDENTITY,
+				additive_material: Material = null,) -> Rect2:
 	if frame > target.length - 1:
 		frame = target.length - 1
 
@@ -246,7 +256,8 @@ func draw_symbol(target: AdobeSymbol, parent: RID,
 						material,
 						next_matrix,
 						screen_rect,
-						screen_transform
+						screen_transform,
+						additive_material,
 					)
 
 					if blend_mode != AdobeSymbolInstance.AdobeBlendMode.NORMAL:
@@ -274,8 +285,11 @@ func draw_symbol(target: AdobeSymbol, parent: RID,
 					if used_matrix == null:
 						used_matrix = AdobeColorMatrix.new()
 
+					var used_material := material
 					if use_material:
-						if blend_mode != AdobeSymbolInstance.AdobeBlendMode.NORMAL:
+						if blend_mode == AdobeSymbolInstance.AdobeBlendMode.ADD:
+							used_material = additive_material
+						elif blend_mode != AdobeSymbolInstance.AdobeBlendMode.NORMAL:
 							if Engine.is_editor_hint():
 								# TODO: fix this!!! it could cause a lot of performance issues, it's just really
 								# hard to track down in comparison :[
@@ -288,7 +302,7 @@ func draw_symbol(target: AdobeSymbol, parent: RID,
 								})
 
 						RenderingServer.canvas_item_set_use_parent_material(layer_rid, false)
-						RenderingServer.canvas_item_set_material(layer_rid, material.get_rid())
+						RenderingServer.canvas_item_set_material(layer_rid, used_material.get_rid())
 						RenderingServer.canvas_item_set_instance_shader_parameter(layer_rid, &"blend_mode", int(blend_mode))
 						RenderingServer.canvas_item_set_instance_shader_parameter(layer_rid, &"color_multipliers_0", used_matrix.color_multipliers[0])
 						RenderingServer.canvas_item_set_instance_shader_parameter(layer_rid, &"color_multipliers_1", used_matrix.color_multipliers[1])

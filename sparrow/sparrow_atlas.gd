@@ -79,25 +79,25 @@ func parse() -> void:
 
 			frame.rotated = xml.get_named_attribute_value_safe("rotated") == "true"
 			frames.push_back(frame)
-	
+
 	# Thank you Friday Night Funkin' Base Game Assets.
 	frames.sort_custom(func(a: SparrowFrame, b: SparrowFrame) -> bool:
 		if a.name.length() < 4:
 			return false
 		if b.name.length() < 4:
 			return true
-		
+
 		var a_numbers: String = a.name.right(4)
 		if not a_numbers.is_valid_int():
 			return false
-		
+
 		var b_numbers: String = b.name.right(4)
 		if not b_numbers.is_valid_int():
 			return true
-		
+
 		return a_numbers.to_int() < b_numbers.to_int()
 	)
-	
+
 	for frame: SparrowFrame in frames:
 		if frame.name.length() < 4:
 			continue
@@ -128,16 +128,16 @@ func get_frame_filtered(frame: int, prefix: String) -> SparrowFrame:
 			)
 		else:
 			skip_frame = not cur_frame.name.begins_with(prefix)
-		
+
 		if skip_frame:
 			continue
-		
+
 		if frame <= 0:
 			sparrow_frame = cur_frame
 			break
-		
+
 		frame -= 1
-	
+
 	return sparrow_frame
 
 
@@ -152,13 +152,13 @@ func get_count_filtered(prefix: String) -> int:
 			)
 		else:
 			count += int(frame.name.begins_with(prefix))
-	
+
 	return count
 
 
 func draw_on(canvas_item: RID, draw_info: AnimateDrawInfo) -> void:
 	super(canvas_item, draw_info)
-	
+
 	var sparrow_frame: SparrowFrame = get_frame_filtered(draw_info.frame, draw_info.symbol)
 	if not is_instance_valid(sparrow_frame):
 		push_warning("Drawing invalid frame!")
@@ -177,7 +177,7 @@ func draw_on(canvas_item: RID, draw_info: AnimateDrawInfo) -> void:
 			)
 		)
 
-	RenderingServer.canvas_item_add_texture_rect_region(canvas_item, 
+	RenderingServer.canvas_item_add_texture_rect_region(canvas_item,
 		Rect2(
 			offset if not sparrow_frame.rotated else Vector2.ZERO,
 			sparrow_frame.region.size
@@ -188,6 +188,10 @@ func draw_on(canvas_item: RID, draw_info: AnimateDrawInfo) -> void:
 
 func get_framerate() -> float:
 	return framerate
+
+
+func get_base_dir() -> String:
+	return sparrow_path.get_base_dir()
 
 
 func get_filename() -> String:
@@ -201,5 +205,5 @@ func get_symbols() -> String:
 		string += "%s," % [symbol_name.json_escape()]
 	if not string.is_empty():
 		string.remove_char(string.length() - 1)
-	
+
 	return string

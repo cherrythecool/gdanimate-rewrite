@@ -1,5 +1,6 @@
-extends Resource
+@tool
 class_name AdobeColorMatrix
+extends Resource
 
 
 @export_storage var color_multipliers: Array[Vector4]

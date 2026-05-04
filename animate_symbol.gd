@@ -7,11 +7,9 @@ class_name AnimateSymbol
 @export_placeholder("Name or Prefix") var symbol: String = "":
 	set(value):
 		if symbol != value:
-			var atlas: AnimateAtlas = get_atlas()
-			if atlas is AdobeAtlas:
-				atlas.use_backbuffer_cache = false
-
+			frame_dirty = true
 			queue_redraw()
+
 		symbol = value
 
 @export var frame: int = 0:
@@ -23,13 +21,12 @@ class_name AnimateSymbol
 
 		var length: int = get_animation_length()
 		value = validate_frame(value, length)
-		if frame != value:
-			var atlas: AnimateAtlas = get_atlas()
-			if atlas is AdobeAtlas:
-				atlas.use_backbuffer_cache = false
 
+		if frame != value:
+			frame_dirty = true
 			queue_redraw()
-			frame = value
+
+		frame = value
 
 		if not internal_setting_frame:
 			frame_timer = 0.0
@@ -48,10 +45,7 @@ class_name AnimateSymbol
 @export var centered: bool = true:
 	set(value):
 		if centered != value:
-			var atlas: AnimateAtlas = get_atlas()
-			if atlas is AdobeAtlas:
-				atlas.use_backbuffer_cache = false
-
+			frame_dirty = true
 			queue_redraw()
 
 		centered = value
@@ -59,10 +53,7 @@ class_name AnimateSymbol
 @export var offset: Vector2 = Vector2.ZERO:
 	set(value):
 		if offset != value:
-			var atlas: AnimateAtlas = get_atlas()
-			if atlas is AdobeAtlas:
-				atlas.use_backbuffer_cache = false
-
+			frame_dirty = true
 			queue_redraw()
 
 		offset = value
@@ -78,24 +69,48 @@ class_name AnimateSymbol
 
 		if atlas_index != value:
 			notify_property_list_changed()
+
+			frame_dirty = true
 			queue_redraw()
+
 		atlas_index = value
 
 @export_tool_button("Cache Current", "Save") var atlas_cache: Callable = cache_current
 @export_tool_button("Reparse Current", "Reload") var atlas_reload: Callable = reparse_current
+@export_tool_button("Make AnimationLibrary", "AnimationLibrary") var atlas_make_player: Callable = make_player_from_current
 
 var frame_timer: float = 0.0
 var internal_canvas_items: Array[RID] = []
 var last_atlases_size: int = 0
 var adobe_atlas_material: ShaderMaterial = null
+var adobe_additive_material: ShaderMaterial = null
 var last_screen_transform: Transform2D = Transform2D()
 var internal_setting_frame: bool = false
+var frame_dirty: bool = false
 
 
 func _enter_tree() -> void:
 	if autoplay and not Engine.is_editor_hint():
 		playing = true
+
 	last_screen_transform = get_backbuffer_transform()
+
+	set_notify_local_transform(true)
+	set_notify_transform(true)
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_TRANSFORM_CHANGED or what == NOTIFICATION_LOCAL_TRANSFORM_CHANGED:
+		var atlas := get_atlas()
+		if not atlas:
+			return
+
+		last_screen_transform = get_backbuffer_transform()
+
+		if atlas is AdobeAtlas:
+			atlas.use_backbuffer_cache = true
+
+		queue_redraw()
 
 
 func _validate_property(property: Dictionary) -> void:
@@ -146,19 +161,17 @@ func _process(delta: float) -> void:
 	if not is_instance_valid(atlas):
 		return
 
-	if last_screen_transform != get_backbuffer_transform():
+	if atlas.wants_redraw() or frame_dirty:
+		frame = frame
+		queue_redraw()
+	elif last_screen_transform != get_backbuffer_transform():
 		last_screen_transform = get_backbuffer_transform()
+
 		if atlas is AdobeAtlas:
 			atlas.use_backbuffer_cache = true
 
 		queue_redraw()
 
-	if atlas.wants_redraw():
-		frame = frame
-		if atlas is AdobeAtlas:
-			atlas.use_backbuffer_cache = false
-
-		queue_redraw()
 	if atlas.wants_reload_list():
 		notify_property_list_changed()
 
@@ -166,6 +179,7 @@ func _process(delta: float) -> void:
 		return
 
 	internal_setting_frame = true
+
 	var fps: float = atlas.get_framerate()
 	frame_timer += delta * speed_scale
 	if frame_timer >= 1.0 / fps:
@@ -177,8 +191,8 @@ func _process(delta: float) -> void:
 
 		frame += amount
 		frame_timer = wrapf(frame_timer, 0.0, 1.0 / fps)
-	internal_setting_frame = false
 
+	internal_setting_frame = false
 
 
 func _draw() -> void:
@@ -195,6 +209,11 @@ func _draw() -> void:
 	)
 	draw_info.screen_transform = get_backbuffer_transform()
 
+	if atlas is AdobeAtlas and frame_dirty:
+		atlas.use_backbuffer_cache = false
+
+	frame_dirty = false
+
 	if atlas is AdobeAtlas and atlas.use_backbuffer_cache:
 		_draw_adobe(atlas as AdobeAtlas, draw_info)
 		return
@@ -208,7 +227,6 @@ func _draw() -> void:
 		RenderingServer.free_rid(rid)
 
 	internal_canvas_items.clear()
-
 	match atlas.format:
 		"sparrow":
 			_draw_sparrow(atlas as SparrowAtlas, draw_info)
@@ -239,21 +257,24 @@ func _draw_sparrow(atlas: SparrowAtlas, draw_info: AnimateDrawInfo) -> void:
 func _draw_adobe(atlas: AdobeAtlas, draw_info: AnimateDrawInfo) -> void:
 	if not is_instance_valid(adobe_atlas_material):
 		adobe_atlas_material = load("uid://bxdjijj35wput")
+	if not is_instance_valid(adobe_additive_material):
+		adobe_additive_material = load("uid://cq8o5idg0r1n0")
 
 	draw_info.material = adobe_atlas_material
+	draw_info.additive_material = adobe_additive_material
 	atlas.draw_on(get_canvas_item(), draw_info)
 
 
-func get_animation_length() -> int:
+func get_animation_length(use_custom: bool = false, custom: String = "") -> int:
 	var atlas: AnimateAtlas = get_atlas()
 	if not is_instance_valid(atlas):
 		return 0
 
 	match atlas.format:
 		"sparrow":
-			return (atlas as SparrowAtlas).get_count_filtered(symbol)
+			return (atlas as SparrowAtlas).get_count_filtered(custom if use_custom else symbol)
 		"adobe":
-			return (atlas as AdobeAtlas).get_length_of(StringName(symbol))
+			return (atlas as AdobeAtlas).get_length_of(StringName(custom if use_custom else symbol))
 		_:
 			pass
 
@@ -275,6 +296,54 @@ func validate_frame(value: int, length: int = -1) -> int:
 		value = 0
 
 	return value
+
+
+func make_player_from_current() -> void:
+	var atlas := get_atlas()
+
+	if not atlas:
+		return
+
+	var library := AnimationLibrary.new()
+
+	var symbols: Array = []
+	var fps := atlas.get_framerate()
+
+	if atlas is AdobeAtlas:
+		symbols = atlas.symbols.keys()
+	elif atlas is SparrowAtlas:
+		symbols = atlas.symbols
+
+	for cur_symbol in symbols:
+		var str := String(cur_symbol)
+		var length := get_animation_length(true, str)
+
+		var animation := Animation.new()
+		animation.length = float(length) / fps
+
+		animation.add_track(Animation.TYPE_VALUE)
+		animation.track_set_interpolation_type(0, Animation.INTERPOLATION_NEAREST)
+		animation.track_set_path(0, ^"./:symbol")
+		animation.track_insert_key(0, 0.0, str)
+
+		animation.add_track(Animation.TYPE_VALUE)
+		animation.track_set_interpolation_type(1, Animation.INTERPOLATION_NEAREST)
+		animation.track_set_path(1, ^"./:frame")
+
+		for i: int in length:
+			animation.track_insert_key(1, float(i) / fps, i)
+
+		animation.add_track(Animation.TYPE_VALUE)
+		animation.track_set_path(2, ^"./:offset")
+		animation.track_insert_key(2, 0.0, Vector2.ZERO)
+
+		library.add_animation(str.replace("/", ";"), animation)
+
+	var path := "%s/%s_LIBRARY.res" % [atlas.get_base_dir(), atlas.get_filename()]
+	if ResourceLoader.exists(path):
+		library.take_over_path(path)
+
+	ResourceSaver.save(library, path, ResourceSaver.FLAG_COMPRESS | ResourceSaver.FLAG_REPLACE_SUBRESOURCE_PATHS)
 
 
 func cache_current() -> void:
