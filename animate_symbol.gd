@@ -15,8 +15,8 @@ class_name AnimateSymbol
 @export var frame: int = 0:
 	set(value):
 		if atlases.is_empty():
-			queue_redraw()
 			frame = value
+			queue_redraw()
 			return
 
 		var length: int = get_animation_length()
@@ -161,10 +161,9 @@ func _process(delta: float) -> void:
 	if not is_instance_valid(atlas):
 		return
 
-	if atlas.wants_redraw() or frame_dirty:
-		frame = frame
+	if atlas.wants_redraw():
 		queue_redraw()
-	elif last_screen_transform != get_backbuffer_transform():
+	elif last_screen_transform != get_backbuffer_transform() and not frame_dirty:
 		last_screen_transform = get_backbuffer_transform()
 
 		if atlas is AdobeAtlas:
@@ -207,17 +206,17 @@ func _draw() -> void:
 		get_transform(),
 		internal_canvas_items
 	)
+
 	draw_info.screen_transform = get_backbuffer_transform()
 
 	if atlas is AdobeAtlas and frame_dirty:
 		atlas.use_backbuffer_cache = false
 
-	frame_dirty = false
-
 	if atlas is AdobeAtlas and atlas.use_backbuffer_cache:
 		_draw_adobe(atlas as AdobeAtlas, draw_info)
 		return
 
+	frame_dirty = false
 	RenderingServer.canvas_item_clear(get_canvas_item())
 
 	for rid: RID in internal_canvas_items:

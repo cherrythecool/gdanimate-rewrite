@@ -100,10 +100,7 @@ func draw_on(canvas_item: RID, draw_info: AnimateDrawInfo) -> void:
 	if use_backbuffer_cache:
 		if Engine.is_editor_hint():
 			backbuffer_cache.clear()
-			use_backbuffer_cache = false
 			return
-
-		RenderingServer.canvas_item_set_transform(draw_info.items[0], transform)
 
 		for cached: Dictionary in backbuffer_cache:
 			RenderingServer.canvas_item_set_copy_to_backbuffer(
@@ -159,8 +156,10 @@ func get_symbols() -> String:
 
 		return a < b
 	)
+
 	for symbol_name: StringName in keys:
 		string += "%s," % [symbol_name.json_escape()]
+
 	if not string.is_empty():
 		string.remove_char(string.length() - 1)
 
