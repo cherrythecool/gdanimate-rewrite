@@ -87,6 +87,8 @@ var adobe_additive_material: ShaderMaterial = null
 var last_screen_transform: Transform2D = Transform2D()
 var internal_setting_frame: bool = false
 var frame_dirty: bool = false
+var last_light_mask: int = 0
+var last_visibilty_layer: int = 0
 
 
 func _enter_tree() -> void:
@@ -161,6 +163,13 @@ func _process(delta: float) -> void:
 	if not is_instance_valid(atlas):
 		return
 
+	if last_light_mask != light_mask:
+		last_light_mask = light_mask
+		queue_redraw()
+	if last_visibilty_layer != visibility_layer:
+		last_visibilty_layer = visibility_layer
+		queue_redraw()
+
 	if atlas.wants_redraw():
 		queue_redraw()
 	elif last_screen_transform != get_backbuffer_transform() and not frame_dirty:
@@ -208,6 +217,8 @@ func _draw() -> void:
 	)
 
 	draw_info.screen_transform = get_backbuffer_transform()
+	draw_info.light_mask = light_mask
+	draw_info.visibility_layer = visibility_layer
 
 	if atlas is AdobeAtlas and frame_dirty:
 		atlas.use_backbuffer_cache = false
