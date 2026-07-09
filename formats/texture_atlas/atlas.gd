@@ -24,23 +24,30 @@ enum BlendMode {
 enum SymbolType {
 	GRAPHIC = 0,
 	MOVIE_CLIP
-	# TODO: BUTTON(s)
+	# TODO: BUTTONs
 }
 
 enum SymbolLoopMode {
 	LOOP = 0,
-	ONE_SHOT,
-	FREEZE_FRAME,
-	REVERSE_ONE_SHOT, # TODO: Implement
+	PLAY_ONCE,
+	SINGLE_FRAME,
+	REVERSE_PLAY_ONCE, # TODO: Implement
 	REVERSE_LOOP # TODO: Implement
 }
 
+const MATERIAL_LIST: Array[StringName] = [
+	&"default",
+	&"blend_add",
+	&"blend_sub",
+	&"other_blends",
+]
 
 ## Path to any file in the animation path (like Animation.json, spritemap1.json, etc),
 ## or the folder that contains those files.
 @export_dir var folder: String = "":
 	set(v):
 		folder = v
+
 		if not folder.get_extension().is_empty():
 			folder = folder.get_base_dir()
 		elif folder.ends_with("/"):
@@ -49,41 +56,117 @@ enum SymbolLoopMode {
 		parse()
 		path_changed.emit()
 
-## For more like SWF behavior, set to true.
+# TODO: fix the impl for this
+## For movie clips to play more like in a SWF, set to true.
 @export var movie_clips_play: bool = false:
 	set(v):
 		movie_clips_play = v
 		redraw_requested.emit()
 
-## Clips the edges outside of each part of the spritemap (to help prevent edge bleeding)
-@export var clip_texture_uvs: bool = true:
+## Clips the edges outside of each part of the spritemap (to help prevent edge bleeding, may not always be desired)
+@export var clip_texture_uvs: bool = false:
 	set(v):
 		clip_texture_uvs = v
 		redraw_requested.emit()
 
-var spritemap: Dictionary[StringName, TextureAtlasSprite] = {}
+## Uses a simpler form of rendering the atlas that takes less time but doesn't support
+## more "advanced" features like Blend Modes, Masking, etc.[br][br]
+## Use if you need better performance (usually with a lot of TAs at once)
+## and don't need those more complex features.
+@export_enum("Full", "Performance") var render_mode: String = "Full":
+	set(v):
+		render_mode = v
+		redraw_requested.emit()
+		notify_property_list_changed()
+
+## Override internal default materials used by [TextureAtlas]
+var override_enable := false
+
+var override_default: Material = null
+var override_blend_add: Material = null
+var override_blend_subtract: Material = null
+var override_other_blends: Material = null
+
+var spritemap: Dictionary[StringName, AtlasTexture] = {}
 var symbols: Dictionary[StringName, TextureAtlasSymbol] = {}
 var framerate: float = 24.0
 var stage_symbol: StringName = &""
 var stage_transform: Transform2D = Transform2D.IDENTITY
 
-var _internal_material: Material = null
+var _internal_materials: Dictionary[StringName, Material]
+
+
+static func parse_matrix(matrix: Variant) -> Transform2D:
+	if matrix is Dictionary:
+		return Transform2D(
+			Vector2(matrix["m00"], matrix["m01"]),
+			Vector2(matrix["m10"], matrix["m11"]),
+			Vector2(matrix["m30"], matrix["m31"]),
+		)
+	elif matrix is Array:
+		if matrix.size() == 6:
+			return Transform2D(
+				Vector2(matrix[0], matrix[1]),
+				Vector2(matrix[2], matrix[3]),
+				Vector2(matrix[4], matrix[5]),
+			)
+		else:
+			return Transform2D(
+				Vector2(matrix[0], matrix[1]),
+				Vector2(matrix[4], matrix[5]),
+				Vector2(matrix[12], matrix[13]),
+			)
+	else:
+		return Transform2D.IDENTITY
+
+
+func _get_property_list() -> Array[Dictionary]:
+	var properties: Array[Dictionary] = []
+	if Engine.is_editor_hint() and render_mode == "Full":
+		properties.push_back({
+			"name": &"Rendering Options",
+			"type": TYPE_NIL,
+			"usage": PROPERTY_USAGE_GROUP,
+		})
+
+		properties.push_back({
+			"name": &"Override Materials",
+			"type": TYPE_NIL,
+			"usage": PROPERTY_USAGE_SUBGROUP,
+			"hint_string": "override_",
+		})
+
+		properties.push_back({
+			"name": &"override_enable",
+			"type": TYPE_BOOL,
+			"hint": PROPERTY_HINT_GROUP_ENABLE,
+			"usage": PROPERTY_USAGE_DEFAULT,
+		})
+
+		for name: StringName in MATERIAL_LIST:
+			properties.push_back({
+				"name": &"override_%s" % name,
+				"type": TYPE_OBJECT,
+				"usage": PROPERTY_USAGE_DEFAULT,
+			})
+
+	return properties
 
 
 func parse() -> void:
 	redraw_requested.emit()
 
-	var cache_path: String = "%s/animation_cache.res" % [folder]
+	var cache_path := "%s/animation_cache.res" % [folder]
 	if ResourceLoader.exists(cache_path):
 		var cached: TextureAtlasCache = load(cache_path)
 		if is_instance_valid(cached):
 			cached.apply_to_atlas(self)
 			return
 
-	spritemap.clear()
 	symbols.clear()
+	spritemap.clear()
 
-	var animation_json: String = "%s/Animation.json" % [folder]
+	var animation_json := "%s/Animation.json" % [folder]
 	if not ResourceLoader.exists(animation_json):
 		printerr("Atlas path (%s) is missing Animation.json!" % [folder])
 		return
@@ -91,12 +174,12 @@ func parse() -> void:
 	TextureAtlasSpritemap.load_spritemaps(folder, spritemap)
 	load_animation()
 
-	for symbol: TextureAtlasSymbol in symbols.values():
-		for layer: TextureAtlasLayer in symbol.layers:
-			for frame: TextureAtlasFrame in layer.frames:
-				for element: TextureAtlasDrawable in frame.elements:
-					if element is TextureAtlasSymbolInstance:
-						element.symbol = symbols[element.key]
+	#for symbol: TextureAtlasSymbol in symbols.values():
+		#for layer: TextureAtlasLayer in symbol.layers:
+			#for frame: TextureAtlasFrame in layer.frames:
+				#for element: TextureAtlasDrawable in frame.elements:
+					#if element is TextureAtlasSymbolInstance:
+						#element.symbol = symbols[element.key]
 
 
 func cache() -> void:
@@ -106,26 +189,17 @@ func cache() -> void:
 func draw_2d(target: AnimateSymbol2D) -> void:
 	target._clear_canvas_item()
 
-	var drawn_symbol: StringName = target.symbol
+	var symbol: StringName = target.symbol
 	var use_stage: bool = not symbols.has(target.symbol)
 	if use_stage and not stage_symbol.is_empty():
-		drawn_symbol = stage_symbol
+		symbol = stage_symbol
 
-	if not symbols.has(drawn_symbol):
+	if not symbols.has(symbol):
 		return
 
-	var canvas_items: Array[RID] = target._internal_canvas_items
-	var root_item: RID = create_canvas_item(canvas_items)
-	RenderingServer.canvas_item_set_parent(
-		root_item,
-		target.get_canvas_item(),
-	)
-	RenderingServer.canvas_item_set_draw_behind_parent(root_item, true)
-	RenderingServer.canvas_item_set_use_parent_material(root_item, true)
-
-	var transform: Transform2D = Transform2D(0.0, target.offset)
+	var transform := Transform2D(0.0, target.offset)
 	if target.centered:
-		var rect: Rect2 = get_symbol_rect(drawn_symbol)
+		var rect: Rect2 = get_symbol_rect(symbol)
 		transform = transform.translated(
 			-rect.position - (rect.size / 2.0),
 		)
@@ -133,30 +207,103 @@ func draw_2d(target: AnimateSymbol2D) -> void:
 	if use_stage:
 		transform *= stage_transform
 
-	RenderingServer.canvas_item_set_transform(root_item, transform)
+	var target_item := target.get_canvas_item()
+	if render_mode == "Performance":
+		_internal_materials.clear()
+		draw_2d_simple(
+			symbols[symbol],
+			target.frame,
+			transform,
+			target_item,
+		)
+	else:
+		var canvas_items: Array[RID] = target._internal_canvas_items
+		var root_item: RID = create_canvas_item(canvas_items)
+		RenderingServer.canvas_item_set_parent(
+			root_item,
+			target_item,
+		)
 
-	var material: Material = target.material
-	if not is_instance_valid(material):
-		if not is_instance_valid(_internal_material):
-			if not ResourceLoader.exists("uid://bxdjijj35wput"):
-				# Fallback in case UIDs break I guess?
-				_internal_material = load("res://addons/gdanimate/formats/texture_atlas/shaders/sprite_material.tres")
-			else:
-				_internal_material = load("uid://bxdjijj35wput")
+		RenderingServer.canvas_item_set_use_parent_material(root_item, true)
+		RenderingServer.canvas_item_set_transform(root_item, transform)
 
-		material = _internal_material
+		if _internal_materials.is_empty():
+			_internal_materials = {
+				&"default": load("res://addons/gdanimate/formats/texture_atlas/shaders/sprite_material.tres"),
+				&"blend_add": load("res://addons/gdanimate/formats/texture_atlas/shaders/sprite_material.tres"),
+				&"blend_subtract": load("res://addons/gdanimate/formats/texture_atlas/shaders/sprite_material.tres"),
+			}
 
-	draw_symbol(
-		symbols[drawn_symbol],
-		root_item,
-		Transform2D.IDENTITY,
-		target.frame,
-		false,
-		canvas_items,
-		TextureAtlas.BlendMode.NORMAL,
-		material,
-		null,
-	)
+		var state := TextureAtlasDrawState.new()
+		state.materials[&"default"] = target.material
+
+		if not is_instance_valid(state.materials[&"default"]):
+			state.materials[&"default"] = _internal_materials[&"default"]
+
+		draw_2d_complex(
+			symbols[symbol],
+			target.frame,
+			state,
+			target_item,
+		)
+
+
+func draw_2d_simple(
+	symbol: TextureAtlasSymbol,
+	frame: int,
+	transform: Transform2D,
+	target: RID,
+) -> void:
+	for i: int in symbol.layers_draw_order:
+		var layer := symbol.layers[i]
+		if not frame in layer.frame_range:
+			continue
+
+		for layer_frame: TextureAtlasFrame in layer.frames:
+			if frame > layer_frame.starting_index + layer_frame.duration - 1:
+				continue
+			if frame < layer_frame.starting_index:
+				break
+
+			for element: TextureAtlasDrawable in layer_frame.elements:
+				if element is TextureAtlasSprite:
+					var texture := spritemap[element.key]
+					texture.filter_clip = clip_texture_uvs
+					element.draw(target, {
+						&"texture": texture,
+						&"transform": transform,
+					})
+				elif element is TextureAtlasSymbolInstance:
+					draw_2d_simple(symbols[element.key],
+						element.get_frame_after(
+							frame - layer_frame.starting_index,
+							symbols[element.key].length,
+							movie_clips_play,
+						),
+						transform * element.transform,
+						target,
+					)
+
+
+func draw_2d_complex(
+	symbol: TextureAtlasSymbol,
+	frame: int,
+	state: TextureAtlasDrawState,
+	target: RID,
+) -> void:
+	pass
+
+	#draw_symbol(
+		#symbols[symbol],
+		#root_item,
+		#Transform2D.IDENTITY,
+		#target.frame,
+		#false,
+		#canvas_items,
+		#TextureAtlas.BlendMode.NORMAL,
+		#material,
+		#null,
+	#)
 
 
 func get_framerate() -> float:
@@ -184,13 +331,15 @@ func get_symbol_rect(key: StringName) -> Rect2:
 	if not symbols.has(key):
 		return Rect2()
 
-	return symbols[key].bounding_box
+	#return symbols[key].bounding_box
+	return Rect2()
 
 
 func has_symbol(symbol: StringName) -> bool:
 	return symbols.has(symbol)
 
 
+"""
 func draw_symbol(
 	target: TextureAtlasSymbol,
 	parent: RID,
@@ -287,6 +436,7 @@ func draw_symbol(
 					var use_material: bool = blend_mode != TextureAtlas.BlendMode.NORMAL
 					if not use_material:
 						use_material = color_matrix != null
+
 					var used_matrix: TextureAtlasColorMatrix = color_matrix
 					if used_matrix == null:
 						used_matrix = TextureAtlasColorMatrix.new()
@@ -354,261 +504,78 @@ func draw_atlas_sprite(sprite: TextureAtlasSprite, parent: RID, t: Transform2D) 
 		false,
 		clip_texture_uvs,
 	)
+"""
 
 
 func load_animation() -> void:
 	var raw_json: String = FileAccess.get_file_as_string("%s/Animation.json" % [folder])
 	var json: Variant = JSON.parse_string(raw_json)
 	if json == null:
-		printerr("Failed to parse %s/Animation.json as JSON!" % [folder])
+		printerr("Failed to parse %s/Animation.json as JSON!" % folder)
 		return
 
-	var data: Dictionary = json
-	var optimized: bool = data.has("AN")
+	if json is not Dictionary:
+		printerr("Animation JSON must be a Dictionary!")
+		return
 
-	if ResourceLoader.exists("%s/metadata.json" % [folder]):
-		var raw_meta: String = FileAccess.get_file_as_string("%s/metadata.json" % [folder])
-		var json_meta: Variant = JSON.parse_string(raw_meta)
-		if json_meta == null:
-			printerr("Failed to parse %s/metadata.json as JSON!" % [folder])
+	json = json as Dictionary
+
+	var optimized: bool = json.has("AN")
+	if ResourceLoader.exists("%s/metadata.json" % folder):
+		var meta_raw_json: String = FileAccess.get_file_as_string("%s/metadata.json" % [folder])
+		var meta_json: Variant = JSON.parse_string(meta_raw_json)
+		if meta_json == null:
+			printerr("Failed to parse %s/metadata.json as JSON!" % folder)
 			return
 
-		var meta: Dictionary = json_meta as Dictionary
-		framerate = meta.get("framerate", meta.get("FRT", 24))
-	else:
-		var meta: Dictionary = get_pair(optimized, data, "metadata", "MD")
-		framerate = get_pair(optimized, meta, "framerate", "FRT")
+		if meta_json is not Dictionary:
+			print("Metadata JSON must be a Dictionary!")
+			return
 
-	if has_pair(optimized, data, "SYMBOL_DICTIONARY", "SD"):
-		var symbol_dict: Dictionary = get_pair(optimized, data, "SYMBOL_DICTIONARY", "SD")
-		var symbol_array: Array = get_pair(optimized, symbol_dict, "Symbols", "S")
-		load_symbols(optimized, symbol_array)
-	elif DirAccess.dir_exists_absolute("%s/LIBRARY" % [folder]):
-		var dir: DirAccess = DirAccess.open("%s/LIBRARY" % [folder])
+		meta_json = meta_json as Dictionary
+		framerate = meta_json.get("framerate", meta_json.get("FRT", 24.0))
+	else:
+		var meta: Dictionary = json.get("MD" if optimized else "metadata", {})
+		framerate = meta.get("FRT" if optimized else "framerate", 24.0)
+
+	if json.has("SD" if optimized else "SYMBOL_DICTIONARY"):
+		var symbol_dict: Dictionary = json.get("SD" if optimized else "SYMBOL_DICTIONARY", {})
+		var symbol_array: Array = symbol_dict.get("S" if optimized else "Symbols", [])
+		SymbolDictionary.parse_array(symbol_array, optimized, symbols)
+	elif DirAccess.dir_exists_absolute("%s/LIBRARY" % folder):
+		var dir: DirAccess = DirAccess.open("%s/LIBRARY" % folder)
 		if dir == null:
-			printerr("Failed to open %s/LIBRARY directory!" % [folder])
+			printerr("Failed to open %s/LIBRARY directory! Error: " % [
+				folder,
+				DirAccess.get_open_error(),
+			])
+
 			return
 
-		load_symbol_directory(optimized, dir)
-	else:
-		printerr("Failed to load symbol library for %s (neither SYMBOL_DICTIONARY, SD, or /LIBRARY folder exist)!" % [folder])
-		return
-
-	var anim: Dictionary = get_pair(optimized, data, "ANIMATION", "AN")
-	stage_symbol = get_pair(optimized, anim, "SYMBOL_name", "SN")
-	load_symbol(optimized, anim)
-
-	if has_pair(optimized, anim, "StageInstance", "STI"):
-		var stage: Dictionary = get_pair(optimized, anim, "StageInstance", "STI")
-		var instance: Dictionary = get_pair(optimized, stage, "SYMBOL_Instance", "SI")
-
-		if has_pair(optimized, instance, "Matrix", "MX"):
-			stage_transform = parse_matrix(get_pair(optimized, instance, "Matrix", "MX"))
-		else:
-			stage_transform = parse_matrix(get_pair(optimized, instance, "Matrix3D", "M3D"))
-	else:
-		stage_transform = Transform2D.IDENTITY
-
-
-func load_symbol_directory(optimized: bool, dir: DirAccess, folder: String = "") -> void:
-	if dir == null:
-		return
-
-	dir.list_dir_begin()
-	var name: String = dir.get_next()
-	while name != "":
-		if dir.current_is_dir() and name != "." and name != "..":
-			load_symbol_directory(optimized, DirAccess.open(dir.get_current_dir() + "/" + name), folder + name + "/")
-		elif name.get_extension() == "json":
-			var raw: String = FileAccess.get_file_as_string(dir.get_current_dir() + "/" + name)
-			var json: Variant = JSON.parse_string(raw)
-			if json == null:
-				printerr("Failed to parse %s as JSON!" % [folder + name])
-				return
-
-			var symbol_name: String = folder + name.get_file().get_basename()
-			symbols[StringName(symbol_name)] = load_layers(
-				optimized,
-				get_pair(optimized, json as Dictionary, "LAYERS", "L")
-			)
-
-		name = dir.get_next()
-
-
-func load_symbols(optimized: bool, symbol_array: Array) -> void:
-	for symbol: Dictionary in symbol_array:
-		load_symbol(optimized, symbol)
-
-
-func load_symbol(optimized: bool, symbol: Dictionary) -> void:
-	var key: String = get_pair(optimized, symbol, "SYMBOL_name", "SN")
-	var timeline: Dictionary = get_pair(optimized, symbol, "TIMELINE", "TL")
-	if has_pair(optimized, timeline, "LAYERS", "L"):
-		var gd_symbol: TextureAtlasSymbol = load_layers(optimized,
-				get_pair(optimized, timeline, "LAYERS", "L"))
-		symbols[StringName(key)] = gd_symbol
-
-
-func load_layers(optimized: bool, layers: Array) -> TextureAtlasSymbol:
-	var gd_symbol: TextureAtlasSymbol = TextureAtlasSymbol.new()
-	for layer: Dictionary in layers:
-		var gd_layer: TextureAtlasLayer = TextureAtlasLayer.new()
-		gd_layer.name = get_pair(optimized, layer, "Layer_name", "LN")
-		if has_pair(optimized, layer, "Layer_type", "LT"):
-			if optimized:
-				gd_layer.clipping = layer["LT"] == "Clp"
-			else:
-				gd_layer.clipping = layer["Layer_type"] == "Clipper"
-		if has_pair(optimized, layer, "Clipped_by", "Clpb"):
-			gd_layer.clipped_by = get_pair(optimized, layer, "Clipped_by", "Clpb")
-
-		var duration: int = 0
-		if has_pair(optimized, layer, "Frames", "FR"):
-			var frames: Array = get_pair(optimized, layer, "Frames", "FR")
-			for frame: Dictionary in frames:
-				gd_layer.frames.push_back(load_frame(optimized, frame))
-				duration += gd_layer.frames[gd_layer.frames.size() - 1].duration
-
-		if gd_symbol.length < duration:
-			gd_symbol.length = duration
-
-		gd_symbol.layers.push_back(gd_layer)
-
-	return gd_symbol
-
-
-func load_frame(optimized: bool, frame: Dictionary) -> TextureAtlasFrame:
-	var gd_frame: TextureAtlasFrame = TextureAtlasFrame.new()
-	gd_frame.starting_index = get_pair(optimized, frame, "index", "I")
-	gd_frame.duration = get_pair(optimized, frame, "duration", "DU")
-
-	var elements: Array = get_pair(optimized, frame, "elements", "E")
-	for element: Dictionary in elements:
-		if element.has("SYMBOL_Instance") or element.has("SI"):
-			gd_frame.elements.push_back(load_symbol_instance(optimized, element))
-		else:
-			gd_frame.elements.push_back(load_atlas_sprite(optimized, element))
-
-	return gd_frame
-
-
-func load_symbol_instance(optimized: bool, element: Dictionary) -> TextureAtlasSymbolInstance:
-	var symbol_instance := TextureAtlasSymbolInstance.new()
-	element = get_pair(optimized, element, "SYMBOL_Instance", "SI")
-
-	var key: String = get_pair(optimized, element, "SYMBOL_name", "SN")
-	symbol_instance.key = StringName(key)
-	if has_pair(optimized, element, "firstFrame", "FF"):
-		symbol_instance.first_frame = get_pair(optimized, element, "firstFrame", "FF")
-	else:
-		symbol_instance.first_frame = 0
-
-	if has_pair(optimized, element, "Matrix", "MX"):
-		symbol_instance.transform = parse_matrix(get_pair(optimized, element, "Matrix", "MX"))
-	else:
-		symbol_instance.transform = parse_matrix(get_pair(optimized, element, "Matrix3D", "M3D"))
-
-	if has_pair(optimized, element, "blend", "B"):
-		symbol_instance.blend_mode = get_pair(optimized, element, "blend", "B") as TextureAtlas.BlendMode
-
-	if has_pair(optimized, element, "color", "C"):
-		symbol_instance.color_matrix = TextureAtlasColorMatrix.parse(optimized, get_pair(optimized, element, "color", "C"))
-
-	if has_pair(optimized, element, "loop", "LP"):
-		var loop_mode: String = get_pair(optimized, element, "loop", "LP")
-		if optimized:
-			match loop_mode:
-				"PO":
-					symbol_instance.loop_mode = TextureAtlas.SymbolLoopMode.ONE_SHOT
-				"SF":
-					symbol_instance.loop_mode = TextureAtlas.SymbolLoopMode.FREEZE_FRAME
-				"LP":
-					symbol_instance.loop_mode = TextureAtlas.SymbolLoopMode.LOOP
-				_:
-					symbol_instance.loop_mode = TextureAtlas.SymbolLoopMode.LOOP
-		else:
-			match loop_mode:
-				"playonce":
-					symbol_instance.loop_mode = TextureAtlas.SymbolLoopMode.ONE_SHOT
-				"singleframe":
-					symbol_instance.loop_mode = TextureAtlas.SymbolLoopMode.FREEZE_FRAME
-				"loop":
-					symbol_instance.loop_mode = TextureAtlas.SymbolLoopMode.LOOP
-				_:
-					symbol_instance.loop_mode = TextureAtlas.SymbolLoopMode.LOOP
-	else:
-		symbol_instance.loop_mode = TextureAtlas.SymbolLoopMode.LOOP
-
-	var type: String = get_pair(optimized, element, "symbolType", "ST")
-	if optimized:
-		symbol_instance.type = (
-			TextureAtlas.SymbolType.MOVIE_CLIP
-			if type == "MC" else
-			TextureAtlas.SymbolType.GRAPHIC
-		)
-	else:
-		symbol_instance.type = (
-			TextureAtlas.SymbolType.MOVIE_CLIP
-			if type == "movieclip" else
-			TextureAtlas.SymbolType.GRAPHIC
+		SymbolDictionary.load_symbols_directory(
+			optimized,
+			dir,
+			"",
+			symbols,
 		)
 
-	return symbol_instance
+	var main_animation: Dictionary = json.get("AN" if optimized else "ANIMATION", {})
+	SymbolDictionary.parse_symbol(main_animation, optimized, symbols)
 
+	stage_symbol = main_animation.get("SN" if optimized else "SYMBOL_name")
+	stage_transform = Transform2D.IDENTITY
 
-func load_atlas_sprite(optimized: bool, element: Dictionary) -> TextureAtlasSprite:
-	element = get_pair(optimized, element, "ATLAS_SPRITE_instance", "ASI")
+	if main_animation.has("STI" if optimized else "StageInstance"):
+		var stage: Dictionary = main_animation.get("STI" if optimized else "StageInstance", {})
+		var instance: Dictionary = stage.get("SI" if optimized else "SYMBOL_Instance", {})
 
-	var key_raw: String = get_pair(optimized, element, "name", "N")
-	var key: StringName = StringName(key_raw)
-	if not spritemap.has(key):
-		return TextureAtlasSprite.new()
-
-	var sprite: TextureAtlasSprite = spritemap[key].duplicate()
-	if has_pair(optimized, element, "Matrix", "MX"):
-		sprite.transform = parse_matrix(get_pair(optimized, element, "Matrix", "MX"))
-	else:
-		sprite.transform = parse_matrix(get_pair(optimized, element, "Matrix3D", "M3D"))
-	return sprite
-
-
-func parse_matrix(matrix: Variant) -> Transform2D:
-	if matrix == null:
-		return Transform2D.IDENTITY
-
-	if matrix is Dictionary:
-		return Transform2D(
-			Vector2(matrix["m00"], matrix["m01"]),
-			Vector2(matrix["m10"], matrix["m11"]),
-			Vector2(matrix["m30"], matrix["m31"])
-		)
-
-	if matrix is not Array:
-		return Transform2D.IDENTITY
-
-	if matrix.size() == 6:
-		return Transform2D(
-			Vector2(matrix[0], matrix[1]),
-			Vector2(matrix[2], matrix[3]),
-			Vector2(matrix[4], matrix[5])
-		)
-
-	return Transform2D(
-		Vector2(matrix[0], matrix[1]),
-		Vector2(matrix[4], matrix[5]),
-		Vector2(matrix[12], matrix[13])
-	)
-
-
-func has_pair(optimized: bool, dict: Dictionary, unoptim: String, optim: String) -> bool:
-	return dict.has(optim if optimized else unoptim)
-
-
-func get_pair(optimized: bool, dict: Dictionary, unoptim: String, optim: String) -> Variant:
-	return dict.get(optim if optimized else unoptim)
+		if instance.has("MX" if optimized else "Matrix"):
+			stage_transform = parse_matrix(instance.get("MX" if optimized else "Matrix"))
+		elif instance.has("M3D" if optimized else "Matrix3D"):
+			stage_transform = parse_matrix(instance.get("M3D" if optimized else "Matrix3D"))
 
 
 func create_canvas_item(items: Array[RID]) -> RID:
 	var rid: RID = RenderingServer.canvas_item_create()
-	items.append(rid)
+	items.push_back(rid)
 	return rid

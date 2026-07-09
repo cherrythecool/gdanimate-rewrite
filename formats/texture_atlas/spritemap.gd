@@ -4,7 +4,7 @@ extends Object
 
 static func load_spritemaps(
 	folder: String,
-	output_dict: Dictionary[StringName, TextureAtlasSprite],
+	output_dict: Dictionary[StringName, AtlasTexture],
 ) -> void:
 	var files: PackedStringArray = ResourceLoader.list_directory(folder)
 	for file: String in files:
@@ -24,7 +24,7 @@ static func load_spritemaps(
 
 static func load_spritemap(
 	path: String,
-	output_dict: Dictionary[StringName, TextureAtlasSprite],
+	output_dict: Dictionary[StringName, AtlasTexture],
 ) -> void:
 	var raw_json: String = FileAccess.get_file_as_string(path)
 	var json: Variant = JSON.parse_string(raw_json)
@@ -60,12 +60,12 @@ static func load_spritemap(
 			printerr("Failed to load %s as Texture2D!" % [texture_path])
 			return
 
-	parse_spritemap(json, output_dict, texture)
+	parse(json, output_dict, texture)
 
 
-static func parse_spritemap(
+static func parse(
 	json_data: Dictionary,
-	output_dict: Dictionary[StringName, TextureAtlasSprite],
+	output_dict: Dictionary[StringName, AtlasTexture],
 	source_texture: Texture,
 ) -> void:
 	if not json_data.has("ATLAS"):
@@ -76,9 +76,10 @@ static func parse_spritemap(
 	var sprites: Array = data.get("SPRITES", [])
 	for sprite: Dictionary in sprites:
 		var sprite_data: Dictionary = sprite.get("SPRITE", {})
-		var atlas_sprite: TextureAtlasSprite = TextureAtlasSprite.new()
-		atlas_sprite.texture = source_texture
-		atlas_sprite.region = Rect2(
+
+		var atlas_texture := AtlasTexture.new()
+		atlas_texture.atlas = source_texture
+		atlas_texture.region = Rect2(
 			Vector2(
 				float(sprite_data.get("x", 0.0)),
 				float(sprite_data.get("y", 0.0)),
@@ -88,7 +89,7 @@ static func parse_spritemap(
 				float(sprite_data.get("h", 0.0)),
 			),
 		)
-		atlas_sprite.rotated = sprite_data.get("rotated", false)
+		atlas_texture.set_meta(&"rotated", sprite_data.get("rotated", false))
+		atlas_texture.filter_clip = true
 
-		var name: String = sprite_data.get("name", "")
-		output_dict[StringName(name)] = atlas_sprite
+		output_dict[StringName(sprite_data.get("name"))] = atlas_texture

@@ -3,26 +3,41 @@ class_name TextureAtlasLayer
 extends Resource
 
 
-@export_storage var name: StringName = &""
-@export_storage var frames: Array[TextureAtlasFrame] = []
-@export_storage var clipping: bool = false
-@export_storage var clipped_by: String = ""
-
-var bounding_box := Rect2():
-	get:
-		if bounding_box == Rect2():
-			calculate_bounding_box()
-
-		return bounding_box
+@export var name: StringName = &""
+@export var frames: Array[TextureAtlasFrame] = []
+@export var frame_range: Array = []
+@export var start_index: int = 0
+@export var duration: int = 0
+@export var clipping: bool = false
+@export var clipped_by: String = ""
 
 
-func calculate_bounding_box() -> void:
-	if clipping:
-		return
+static func parse(layer: Dictionary, optimized: bool) -> TextureAtlasLayer:
+	var parsed := TextureAtlasLayer.new()
+	parsed.name = layer.get("LN" if optimized else "Layer_name")
 
-	var rect := Rect2()
-	for frame: TextureAtlasFrame in frames:
-		for element: TextureAtlasDrawable in frame.elements:
-			rect = rect.merge(element.bounding_box)
+	if layer.has("Clpb" if optimized else "Clipped_by"):
+		parsed.clipped_by = layer.get("Clpb" if optimized else "Clipped_by")
+	elif layer.has("LT" if optimized else "Layer_type"):
+		if optimized:
+			parsed.clipping = layer["LT"] == "Clp"
+		else:
+			parsed.clipping = layer["Layer_type"] == "Clipper"
 
-	bounding_box = rect
+	var layer_duration: int = 0
+	if layer.has("FR" if optimized else "Frames"):
+		var frames: Array = layer.get("FR" if optimized else "Frames", [])
+		for frame: Dictionary in frames:
+			parsed.frames.push_back(
+				TextureAtlasFrame.parse(frame, optimized)
+			)
+
+	if not parsed.frames.is_empty():
+		parsed.start_index = parsed.frames[0].starting_index
+
+		var last := parsed.frames[parsed.frames.size() - 1]
+		parsed.duration = last.starting_index + last.duration
+
+		parsed.frame_range = range(parsed.start_index, parsed.start_index + parsed.duration)
+
+	return parsed
