@@ -35,6 +35,7 @@ signal symbol_library_changed
 		if symbol_library_index != value:
 			symbol_library_index = value
 			symbol_library_changed.emit()
+			_clear_canvas_item_pool()
 			notify_property_list_changed()
 			queue_redraw()
 
@@ -121,30 +122,32 @@ var _frame_internal: int = 0:
 
 var _last_symbol_libraries: Array[AnimateSymbolLibrary]
 
-# Used to properly free child canvas items from the
-# rendering server when the animation switches
-var _internal_canvas_items: Array[RID]
-
-
-func _enter_tree() -> void:
-	set_process(true)
-
-	if autoplay and not Engine.is_editor_hint():
-		playing = true
+# Pool is cleared when node is freed OR when library changes
+var _canvas_item_pool: Array[RID]
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_PROCESS:
-		if _last_symbol_libraries != symbol_libraries:
-			if Engine.is_editor_hint():
-				_update_editor_library_signals()
-			else:
-				_last_symbol_libraries = symbol_libraries
+	match what:
+		NOTIFICATION_ENTER_TREE:
+			set_process(true)
 
-			notify_property_list_changed()
-			frame = frame
+			if autoplay and not Engine.is_editor_hint():
+				playing = true
 
-		_process_animation(get_process_delta_time())
+		NOTIFICATION_EXIT_TREE:
+			_clear_canvas_item(true)
+
+		NOTIFICATION_PROCESS:
+			if _last_symbol_libraries != symbol_libraries:
+				if Engine.is_editor_hint():
+					_update_editor_library_signals()
+				else:
+					_last_symbol_libraries = symbol_libraries
+
+				notify_property_list_changed()
+				frame = frame
+
+			_process_animation(get_process_delta_time())
 
 
 func _validate_property(property: Dictionary) -> void:
@@ -185,7 +188,7 @@ func _draw() -> void:
 	if is_instance_valid(_current_library):
 		_current_library.draw_2d(self)
 	else:
-		_clear_canvas_item()
+		_clear_canvas_item(true)
 
 
 func get_animation_length() -> int:
@@ -205,17 +208,31 @@ func reparse_current() -> void:
 		_current_library.parse()
 
 
-func _clear_canvas_item() -> void:
+func _clear_canvas_item(clear_pool: bool) -> void:
 	RenderingServer.canvas_item_clear(get_canvas_item())
 
-	for rid: RID in _internal_canvas_items:
+	if clear_pool:
+		_clear_canvas_item_pool()
+
+
+func _reset_canvas_item_pool() -> void:
+	for rid: RID in _canvas_item_pool:
+		if not rid.is_valid():
+			continue
+
+		RenderingServer.canvas_item_clear(rid)
+		RenderingServer.canvas_item_set_parent(rid, RID())
+
+
+func _clear_canvas_item_pool() -> void:
+	for rid: RID in _canvas_item_pool:
 		if not rid.is_valid():
 			continue
 
 		RenderingServer.canvas_item_clear(rid)
 		RenderingServer.free_rid(rid)
 
-	_internal_canvas_items.clear()
+	_canvas_item_pool.clear()
 
 
 func _process_animation(delta: float) -> void:
@@ -236,6 +253,7 @@ func _process_animation(delta: float) -> void:
 	var frames_per_second: float = _current_library.get_framerate()
 	var seconds_per_frame := 1.0 / frames_per_second
 	_frame_progress += absf(delta * frames_per_second * speed_scale)
+
 	while _frame_progress >= 1.0:
 		var frames_added := int(signf(speed_scale))
 		_frame_progress -= 1.0

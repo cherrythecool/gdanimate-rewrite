@@ -187,8 +187,6 @@ func cache() -> void:
 
 
 func draw_2d(target: AnimateSymbol2D) -> void:
-	target._clear_canvas_item()
-
 	var symbol: StringName = target.symbol
 	var use_stage: bool = not symbols.has(target.symbol)
 	if use_stage and not stage_symbol.is_empty():
@@ -208,44 +206,59 @@ func draw_2d(target: AnimateSymbol2D) -> void:
 		transform *= stage_transform
 
 	var target_item := target.get_canvas_item()
-	if render_mode == "Performance":
-		_internal_materials.clear()
-		draw_2d_simple(
-			symbols[symbol],
-			target.frame,
-			transform,
-			target_item,
-		)
-	else:
-		var canvas_items: Array[RID] = target._internal_canvas_items
-		var root_item: RID = create_canvas_item(canvas_items)
-		RenderingServer.canvas_item_set_parent(
-			root_item,
-			target_item,
-		)
+	match render_mode:
+		"Performance":
+			target._clear_canvas_item(true)
+			_internal_materials.clear()
+			draw_2d_simple(
+				symbols[symbol],
+				target.frame,
+				transform,
+				target_item,
+			)
+		"Full":
+			if _internal_materials.is_empty():
+				_internal_materials = {
+					&"default": load("res://addons/gdanimate/formats/texture_atlas/shaders/sprite_material.tres"),
+					&"blend_add": load("res://addons/gdanimate/formats/texture_atlas/shaders/additive_material.tres"),
+					&"blend_subtract": load("res://addons/gdanimate/formats/texture_atlas/shaders/subtract_material.tres"),
+				}
 
-		RenderingServer.canvas_item_set_use_parent_material(root_item, true)
-		RenderingServer.canvas_item_set_transform(root_item, transform)
+			var state := TextureAtlasDrawState.new()
+			state.item_pool = target._canvas_item_pool
+			state.item_parent = target_item
+			state.materials[&"default"] = target.material
 
-		if _internal_materials.is_empty():
-			_internal_materials = {
-				&"default": load("res://addons/gdanimate/formats/texture_atlas/shaders/sprite_material.tres"),
-				&"blend_add": load("res://addons/gdanimate/formats/texture_atlas/shaders/sprite_material.tres"),
-				&"blend_subtract": load("res://addons/gdanimate/formats/texture_atlas/shaders/sprite_material.tres"),
-			}
+			if not is_instance_valid(state.materials[&"default"]):
+				state.materials[&"default"] = _internal_materials[&"default"]
 
-		var state := TextureAtlasDrawState.new()
-		state.materials[&"default"] = target.material
+			if override_enable:
+				if override_default:
+					state.materials[&"default"] = override_default
+				if override_blend_add:
+					state.materials[&"blend_add"] = override_blend_add
+				if override_blend_subtract:
+					state.materials[&"blend_subtract"] = override_blend_subtract
+				if override_other_blends:
+					state.materials[&"other_blends"] = override_other_blends
 
-		if not is_instance_valid(state.materials[&"default"]):
-			state.materials[&"default"] = _internal_materials[&"default"]
+			target._clear_canvas_item(false)
+			target._reset_canvas_item_pool()
 
-		draw_2d_complex(
-			symbols[symbol],
-			target.frame,
-			state,
-			target_item,
-		)
+			var root_item: RID = state.get_next_item()
+			RenderingServer.canvas_item_set_parent(
+				root_item,
+				target_item,
+			)
+
+			RenderingServer.canvas_item_set_transform(root_item, transform)
+
+			draw_2d_full(
+				symbols[symbol],
+				target.frame,
+				state,
+				root_item,
+			)
 
 
 func draw_2d_simple(
@@ -285,25 +298,81 @@ func draw_2d_simple(
 					)
 
 
-func draw_2d_complex(
+func draw_2d_full(
 	symbol: TextureAtlasSymbol,
 	frame: int,
 	state: TextureAtlasDrawState,
 	target: RID,
 ) -> void:
-	pass
+	var start_transform := state.local_transform
+	var start_blend := state.blend_mode
 
-	#draw_symbol(
-		#symbols[symbol],
-		#root_item,
-		#Transform2D.IDENTITY,
-		#target.frame,
-		#false,
-		#canvas_items,
-		#TextureAtlas.BlendMode.NORMAL,
-		#material,
-		#null,
-	#)
+	for i: int in symbol.layers_draw_order:
+		var layer := symbol.layers[i]
+		if not frame in layer.frame_range:
+			continue
+
+		for layer_frame: TextureAtlasFrame in layer.frames:
+			if frame > layer_frame.starting_index + layer_frame.duration - 1:
+				continue
+			if frame < layer_frame.starting_index:
+				break
+
+			for element: TextureAtlasDrawable in layer_frame.elements:
+				var current_item := state.get_current_item()
+				if start_blend != state.blend_mode:
+					current_item = state.get_next_item()
+					state.blend_mode = start_blend
+
+				RenderingServer.canvas_item_set_material(
+					current_item,
+					state.get_material(start_blend)
+				)
+
+				RenderingServer.canvas_item_set_instance_shader_parameter(
+					current_item,
+					&"blend_mode",
+					int(start_blend),
+				)
+
+				var used_matrix := TextureAtlasColorMatrix.new()
+				RenderingServer.canvas_item_set_instance_shader_parameter(current_item, &"color_multipliers_0", used_matrix.color_multipliers[0])
+				RenderingServer.canvas_item_set_instance_shader_parameter(current_item, &"color_multipliers_1", used_matrix.color_multipliers[1])
+				RenderingServer.canvas_item_set_instance_shader_parameter(current_item, &"color_multipliers_2", used_matrix.color_multipliers[2])
+				RenderingServer.canvas_item_set_instance_shader_parameter(current_item, &"color_multipliers_3", used_matrix.color_multipliers[3])
+				RenderingServer.canvas_item_set_instance_shader_parameter(current_item, &"color_offsets", used_matrix.color_offsets)
+
+				if current_item != target:
+					RenderingServer.canvas_item_set_parent(current_item, target)
+
+				state.local_transform = start_transform
+
+				if element is TextureAtlasSprite:
+					var texture := spritemap[element.key]
+					texture.filter_clip = clip_texture_uvs
+					element.draw(current_item, {
+						&"texture": texture,
+						&"transform": state.local_transform,
+					})
+				elif element is TextureAtlasSymbolInstance:
+					state.local_transform *= element.transform
+
+					if (
+						start_blend == BlendMode.NORMAL and
+						state.blend_mode != element.blend_mode
+					):
+						state.get_next_item()
+						state.blend_mode = element.blend_mode
+
+					draw_2d_full(symbols[element.key],
+						element.get_frame_after(
+							frame - layer_frame.starting_index,
+							symbols[element.key].length,
+							movie_clips_play,
+						),
+						state,
+						target,
+					)
 
 
 func get_framerate() -> float:
@@ -573,9 +642,3 @@ func load_animation() -> void:
 			stage_transform = parse_matrix(instance.get("MX" if optimized else "Matrix"))
 		elif instance.has("M3D" if optimized else "Matrix3D"):
 			stage_transform = parse_matrix(instance.get("M3D" if optimized else "Matrix3D"))
-
-
-func create_canvas_item(items: Array[RID]) -> RID:
-	var rid: RID = RenderingServer.canvas_item_create()
-	items.push_back(rid)
-	return rid

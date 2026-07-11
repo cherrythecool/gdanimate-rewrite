@@ -10,7 +10,7 @@ void fragment() {
 	}
 
 	COLOR = apply_color_matrix(COLOR);
-	
+
 	if (blend_mode != BLEND_NORMAL) {
 		vec4 screen_color = texture(SCREEN_TEXTURE, SCREEN_UV);
 		COLOR = apply_blend_mode(COLOR, screen_color);
