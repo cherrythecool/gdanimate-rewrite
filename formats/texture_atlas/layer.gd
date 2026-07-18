@@ -5,6 +5,10 @@ extends Resource
 
 @export var name: StringName = &""
 @export var frames: Array[TextureAtlasFrame] = []
+
+# Frame index in range -> index of frames array
+@export var frame_indexes: Dictionary[int, int] = {}
+
 @export var frame_range: Array = []
 @export var start_index: int = 0
 @export var duration: int = 0
@@ -39,5 +43,16 @@ static func parse(layer: Dictionary, optimized: bool) -> TextureAtlasLayer:
 		parsed.duration = last.starting_index + last.duration
 
 		parsed.frame_range = range(parsed.start_index, parsed.start_index + parsed.duration)
+
+		for i: int in parsed.frame_range:
+			for frame_i: int in parsed.frames.size():
+				var frame := parsed.frames[frame_i]
+
+				if (
+					i >= frame.starting_index and
+					i <= frame.starting_index + frame.duration - 1
+				):
+					parsed.frame_indexes[i] = frame_i
+					break
 
 	return parsed

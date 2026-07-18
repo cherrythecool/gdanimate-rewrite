@@ -45,4 +45,4 @@ func draw(target: RID, options: Dictionary = {}) -> void:
 		options[&"transform"] * transform * sprite_transform
 	)
 
-	texture.draw(target, Vector2.ZERO)
+	texture.draw(target, Vector2.ZERO, options[&"modulate"])

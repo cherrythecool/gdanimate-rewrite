@@ -38,7 +38,7 @@ enum SymbolLoopMode {
 const MATERIAL_LIST: Array[StringName] = [
 	&"default",
 	&"blend_add",
-	&"blend_sub",
+	&"blend_subtract",
 	&"other_blends",
 ]
 
@@ -46,28 +46,31 @@ const MATERIAL_LIST: Array[StringName] = [
 ## or the folder that contains those files.
 @export_dir var folder: String = "":
 	set(v):
-		folder = v
+		if folder != v:
+			folder = v
 
-		if not folder.get_extension().is_empty():
-			folder = folder.get_base_dir()
-		elif folder.ends_with("/"):
-			folder = folder.left(-1)
+			if not folder.get_extension().is_empty():
+				folder = folder.get_base_dir()
+			elif folder.ends_with("/"):
+				folder = folder.left(-1)
 
-		parse()
-		path_changed.emit()
+			parse()
+			path_changed.emit()
 
 # TODO: fix the impl for this
 ## For movie clips to play more like in a SWF, set to true.
 @export var movie_clips_play: bool = false:
 	set(v):
-		movie_clips_play = v
-		redraw_requested.emit()
+		if movie_clips_play != v:
+			movie_clips_play = v
+			redraw_requested.emit()
 
 ## Clips the edges outside of each part of the spritemap (to help prevent edge bleeding, may not always be desired)
 @export var clip_texture_uvs: bool = false:
 	set(v):
-		clip_texture_uvs = v
-		redraw_requested.emit()
+		if clip_texture_uvs != v:
+			clip_texture_uvs = v
+			redraw_requested.emit()
 
 ## Uses a simpler form of rendering the atlas that takes less time but doesn't support
 ## more "advanced" features like Blend Modes, Masking, etc.[br][br]
@@ -75,17 +78,41 @@ const MATERIAL_LIST: Array[StringName] = [
 ## and don't need those more complex features.
 @export_enum("Full", "Performance") var render_mode: String = "Full":
 	set(v):
-		render_mode = v
-		redraw_requested.emit()
-		notify_property_list_changed()
+		if render_mode != v:
+			render_mode = v
+			redraw_requested.emit()
+			notify_property_list_changed()
 
 ## Override internal default materials used by [TextureAtlas]
-var override_enable := false
+var override_enable := false:
+	set(v):
+		if override_enable != v:
+			override_enable = v
+			redraw_requested.emit()
 
-var override_default: Material = null
-var override_blend_add: Material = null
-var override_blend_subtract: Material = null
-var override_other_blends: Material = null
+var override_default: Material = null:
+	set(v):
+		if override_default != v:
+			override_default = v
+			redraw_requested.emit()
+
+var override_blend_add: Material = null:
+	set(v):
+		if override_blend_add != v:
+			override_blend_add = v
+			redraw_requested.emit()
+
+var override_blend_subtract: Material = null:
+	set(v):
+		if override_blend_subtract != v:
+			override_blend_subtract = v
+			redraw_requested.emit()
+
+var override_other_blends: Material = null:
+	set(v):
+		if override_other_blends != v:
+			override_other_blends = v
+			redraw_requested.emit()
 
 var spritemap: Dictionary[StringName, AtlasTexture] = {}
 var symbols: Dictionary[StringName, TextureAtlasSymbol] = {}
@@ -174,13 +201,6 @@ func parse() -> void:
 	TextureAtlasSpritemap.load_spritemaps(folder, spritemap)
 	load_animation()
 
-	#for symbol: TextureAtlasSymbol in symbols.values():
-		#for layer: TextureAtlasLayer in symbol.layers:
-			#for frame: TextureAtlasFrame in layer.frames:
-				#for element: TextureAtlasDrawable in frame.elements:
-					#if element is TextureAtlasSymbolInstance:
-						#element.symbol = symbols[element.key]
-
 
 func cache() -> void:
 	TextureAtlasCache.save_from_atlas(self)
@@ -227,20 +247,16 @@ func draw_2d(target: AnimateSymbol2D) -> void:
 			var state := TextureAtlasDrawState.new()
 			state.item_pool = target._canvas_item_pool
 			state.item_parent = target_item
-			state.materials[&"default"] = target.material
+			state.materials = _internal_materials.duplicate()
 
-			if not is_instance_valid(state.materials[&"default"]):
-				state.materials[&"default"] = _internal_materials[&"default"]
+			if is_instance_valid(target.material):
+				state.materials[&"default"] = target.material
 
 			if override_enable:
-				if override_default:
-					state.materials[&"default"] = override_default
-				if override_blend_add:
-					state.materials[&"blend_add"] = override_blend_add
-				if override_blend_subtract:
-					state.materials[&"blend_subtract"] = override_blend_subtract
-				if override_other_blends:
-					state.materials[&"other_blends"] = override_other_blends
+				for name: StringName in MATERIAL_LIST:
+					var material := get(&"override_%s" % name)
+					if is_instance_valid(material):
+						state.materials[name] = material
 
 			target._clear_canvas_item(false)
 			target._reset_canvas_item_pool()
@@ -252,6 +268,7 @@ func draw_2d(target: AnimateSymbol2D) -> void:
 			)
 
 			RenderingServer.canvas_item_set_transform(root_item, transform)
+			state.apply_material_to_current()
 
 			draw_2d_full(
 				symbols[symbol],
@@ -271,31 +288,29 @@ func draw_2d_simple(
 		var layer := symbol.layers[i]
 		if not frame in layer.frame_range:
 			continue
+		if not layer.frame_indexes.has(frame):
+			continue
 
-		for layer_frame: TextureAtlasFrame in layer.frames:
-			if frame > layer_frame.starting_index + layer_frame.duration - 1:
-				continue
-			if frame < layer_frame.starting_index:
-				break
-
-			for element: TextureAtlasDrawable in layer_frame.elements:
-				if element is TextureAtlasSprite:
-					var texture := spritemap[element.key]
-					texture.filter_clip = clip_texture_uvs
-					element.draw(target, {
-						&"texture": texture,
-						&"transform": transform,
-					})
-				elif element is TextureAtlasSymbolInstance:
-					draw_2d_simple(symbols[element.key],
-						element.get_frame_after(
-							frame - layer_frame.starting_index,
-							symbols[element.key].length,
-							movie_clips_play,
-						),
-						transform * element.transform,
-						target,
-					)
+		var layer_frame := layer.frames[layer.frame_indexes[frame]]
+		for element: TextureAtlasDrawable in layer_frame.elements:
+			if element is TextureAtlasSprite:
+				var texture := spritemap[element.key]
+				texture.filter_clip = clip_texture_uvs
+				element.draw(target, {
+					&"texture": texture,
+					&"transform": transform,
+					&"modulate": Color.WHITE,
+				})
+			elif element is TextureAtlasSymbolInstance:
+				draw_2d_simple(symbols[element.key],
+					element.get_frame_after(
+						frame - layer_frame.starting_index,
+						symbols[element.key].length,
+						movie_clips_play,
+					),
+					transform * element.transform,
+					target,
+				)
 
 
 func draw_2d_full(
@@ -306,73 +321,81 @@ func draw_2d_full(
 ) -> void:
 	var start_transform := state.local_transform
 	var start_blend := state.blend_mode
+	var start_color_matrix := state.color_matrix
 
 	for i: int in symbol.layers_draw_order:
 		var layer := symbol.layers[i]
 		if not frame in layer.frame_range:
 			continue
+		if not layer.frame_indexes.has(frame):
+			continue
 
-		for layer_frame: TextureAtlasFrame in layer.frames:
-			if frame > layer_frame.starting_index + layer_frame.duration - 1:
-				continue
-			if frame < layer_frame.starting_index:
-				break
+		var layer_frame := layer.frames[layer.frame_indexes[frame]]
+		var current_item: RID
+		for element: TextureAtlasDrawable in layer_frame.elements:
+			current_item = state.get_current_item()
 
-			for element: TextureAtlasDrawable in layer_frame.elements:
-				var current_item := state.get_current_item()
-				if start_blend != state.blend_mode:
+			if current_item != target:
+				RenderingServer.canvas_item_set_parent(current_item, target)
+
+			state.color_matrix = start_color_matrix
+			state.local_transform = start_transform
+
+			if element is TextureAtlasSprite:
+				if (
+					state.item_blend_mode != state.blend_mode or
+					state.item_color_matrix.color_offsets != state.color_matrix.color_offsets
+				):
 					current_item = state.get_next_item()
-					state.blend_mode = start_blend
+					state.item_color_matrix = state.color_matrix
+					state.item_blend_mode = state.blend_mode
+					state.apply_material_to_current()
+					state.color_matrix.apply_to_item(current_item)
 
-				RenderingServer.canvas_item_set_material(
-					current_item,
-					state.get_material(start_blend)
-				)
+					if state.blend_needs_backbuffer(state.blend_mode):
+						# TODO: calculate bounding boxes for optimized copying
+						RenderingServer.canvas_item_set_copy_to_backbuffer(
+							current_item,
+							true,
+							Rect2(),
+						)
 
-				RenderingServer.canvas_item_set_instance_shader_parameter(
-					current_item,
-					&"blend_mode",
-					int(start_blend),
-				)
+				var texture := spritemap[element.key]
+				texture.filter_clip = clip_texture_uvs
+				element.draw(current_item, {
+					&"texture": texture,
+					&"transform": state.local_transform,
+					&"modulate": Color(
+						state.color_matrix.color_multipliers.x,
+						state.color_matrix.color_multipliers.y,
+						state.color_matrix.color_multipliers.z,
+						state.color_matrix.color_multipliers.w,
+					),
+				})
+			elif element is TextureAtlasSymbolInstance:
+				state.local_transform *= element.transform
 
-				var used_matrix := TextureAtlasColorMatrix.new()
-				RenderingServer.canvas_item_set_instance_shader_parameter(current_item, &"color_multipliers_0", used_matrix.color_multipliers[0])
-				RenderingServer.canvas_item_set_instance_shader_parameter(current_item, &"color_multipliers_1", used_matrix.color_multipliers[1])
-				RenderingServer.canvas_item_set_instance_shader_parameter(current_item, &"color_multipliers_2", used_matrix.color_multipliers[2])
-				RenderingServer.canvas_item_set_instance_shader_parameter(current_item, &"color_multipliers_3", used_matrix.color_multipliers[3])
-				RenderingServer.canvas_item_set_instance_shader_parameter(current_item, &"color_offsets", used_matrix.color_offsets)
-
-				if current_item != target:
-					RenderingServer.canvas_item_set_parent(current_item, target)
-
-				state.local_transform = start_transform
-
-				if element is TextureAtlasSprite:
-					var texture := spritemap[element.key]
-					texture.filter_clip = clip_texture_uvs
-					element.draw(current_item, {
-						&"texture": texture,
-						&"transform": state.local_transform,
-					})
-				elif element is TextureAtlasSymbolInstance:
-					state.local_transform *= element.transform
-
-					if (
-						start_blend == BlendMode.NORMAL and
-						state.blend_mode != element.blend_mode
-					):
-						state.get_next_item()
-						state.blend_mode = element.blend_mode
-
-					draw_2d_full(symbols[element.key],
-						element.get_frame_after(
-							frame - layer_frame.starting_index,
-							symbols[element.key].length,
-							movie_clips_play,
-						),
-						state,
-						target,
+				if element.color_matrix:
+					state.color_matrix = TextureAtlasColorMatrix.apply_to_other(
+						state.color_matrix,
+						element.color_matrix
 					)
+
+				if (
+					start_blend == BlendMode.NORMAL and
+					state.blend_mode != element.blend_mode
+				):
+					state.blend_mode = element.blend_mode
+
+				draw_2d_full(symbols[element.key],
+					element.get_frame_after(
+						frame - layer_frame.starting_index,
+						symbols[element.key].length,
+						movie_clips_play,
+					),
+					state,
+					target,
+				)
 
 
 func get_framerate() -> float:
@@ -547,32 +570,6 @@ func draw_symbol(
 			RenderingServer.canvas_item_set_parent(item, clip_parent)
 			RenderingServer.canvas_item_set_draw_index(item, i)
 			i += 1
-
-
-func draw_atlas_sprite(sprite: TextureAtlasSprite, parent: RID, t: Transform2D) -> void:
-	var transform: Transform2D = t * sprite.transform
-	if sprite.rotated:
-		transform *= Transform2D(
-			-PI / 2.0, #deg_to_rad(-90.0),
-			Vector2(
-				0.0,
-				sprite.region.size.x,
-			),
-		)
-
-	RenderingServer.canvas_item_add_set_transform(parent, transform)
-	RenderingServer.canvas_item_add_texture_rect_region(
-		parent,
-		Rect2(
-			Vector2.ZERO,
-			Vector2(sprite.region.size),
-		),
-		sprite.texture.get_rid(),
-		Rect2(sprite.region),
-		Color.WHITE,
-		false,
-		clip_texture_uvs,
-	)
 """
 
 

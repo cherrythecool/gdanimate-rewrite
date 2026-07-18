@@ -12,7 +12,36 @@ var backbuffer_transform := Transform2D.IDENTITY
 var local_transform := Transform2D.IDENTITY
 
 var blend_mode := TextureAtlas.BlendMode.NORMAL
+var item_blend_mode := TextureAtlas.BlendMode.NORMAL
+
+var color_matrix := TextureAtlasColorMatrix.new()
+var item_color_matrix := color_matrix
+
 var masking_mode := false
+
+
+func apply_material_to_current() -> void:
+	var current_item := get_current_item()
+	RenderingServer.canvas_item_set_material(
+		current_item,
+		get_material(blend_mode),
+	)
+
+	RenderingServer.canvas_item_set_instance_shader_parameter(
+		current_item,
+		&"blend_mode",
+		int(blend_mode),
+	)
+
+
+func blend_needs_backbuffer(blend: TextureAtlas.BlendMode) -> bool:
+	match blend:
+		TextureAtlas.BlendMode.SUBTRACT:
+			return not (materials.has(&"blend_subtract") and is_instance_valid(materials[&"blend_subtract"]))
+		TextureAtlas.BlendMode.ADD:
+			return not (materials.has(&"blend_add") and is_instance_valid(materials[&"blend_add"]))
+		TextureAtlas.BlendMode.NORMAL, _:
+			return true
 
 
 func get_material(blend: TextureAtlas.BlendMode) -> RID:
@@ -31,13 +60,6 @@ func get_material(blend: TextureAtlas.BlendMode) -> RID:
 			return materials[&"default"].get_rid()
 		_:
 			return _get_other_blends_material()
-
-
-func _get_other_blends_material() -> RID:
-	if materials.has(&"other_blends") and is_instance_valid(materials[&"other_blends"]):
-		return materials[&"other_blends"].get_rid()
-	else:
-		return materials[&"default"].get_rid()
 
 
 func get_current_item() -> RID:
@@ -60,3 +82,10 @@ func get_next_item() -> RID:
 		rid = item_pool[item_pool_index]
 
 	return rid
+
+
+func _get_other_blends_material() -> RID:
+	if materials.has(&"other_blends") and is_instance_valid(materials[&"other_blends"]):
+		return materials[&"other_blends"].get_rid()
+	else:
+		return materials[&"default"].get_rid()

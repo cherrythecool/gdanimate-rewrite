@@ -12,11 +12,6 @@ const int BLEND_ALPHA = 1;
 const int BLEND_ERASE = 4;
 const int BLEND_NORMAL = 10;
 
-// no mat4 in shader instance uniforms
-instance uniform vec4 color_multipliers_0 = vec4(1.0, 0.0, 0.0, 0.0);
-instance uniform vec4 color_multipliers_1 = vec4(0.0, 1.0, 0.0, 0.0);
-instance uniform vec4 color_multipliers_2 = vec4(0.0, 0.0, 1.0, 0.0);
-instance uniform vec4 color_multipliers_3 = vec4(0.0, 0.0, 0.0, 1.0);
 instance uniform vec4 color_offsets = vec4(0.0);
 
 instance uniform int blend_mode : hint_enum(
@@ -43,14 +38,7 @@ instance uniform int blend_mode : hint_enum(
 }
 
 vec4 apply_color_matrix(vec4 color) {
-	mat4 color_multipliers = mat4(
-		color_multipliers_0,
-		color_multipliers_1,
-		color_multipliers_2,
-		color_multipliers_3
-	);
-
-	return color_offsets + (color * color_multipliers);
+	return color + color_offsets;
 }
 
 vec4 apply_blend_mode(vec4 color, vec4 screen_color) {
