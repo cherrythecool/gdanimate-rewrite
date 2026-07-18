@@ -1,8 +1,8 @@
+@tool
 class_name TextureAtlasDrawState
 extends RefCounted
 
 
-var item_parent: RID
 var item_pool: Array[RID]
 var item_pool_index: int = 0
 
@@ -17,7 +17,13 @@ var item_blend_mode := TextureAtlas.BlendMode.NORMAL
 var color_matrix := TextureAtlasColorMatrix.new()
 var item_color_matrix := color_matrix
 
-var masking_mode := false
+var masking := false
+var item_masking := false
+
+var masked_items: Array[RID]
+
+var masker := false
+var item_masker := false
 
 
 func apply_material_to_current() -> void:
@@ -80,6 +86,9 @@ func get_next_item() -> RID:
 		item_pool.push_back(rid)
 	else:
 		rid = item_pool[item_pool_index]
+
+	if masking:
+		masked_items.push_back(rid)
 
 	return rid
 

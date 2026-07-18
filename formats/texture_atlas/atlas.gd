@@ -246,7 +246,6 @@ func draw_2d(target: AnimateSymbol2D) -> void:
 
 			var state := TextureAtlasDrawState.new()
 			state.item_pool = target._canvas_item_pool
-			state.item_parent = target_item
 			state.materials = _internal_materials.duplicate()
 
 			if is_instance_valid(target.material):

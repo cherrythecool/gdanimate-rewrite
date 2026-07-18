@@ -3,17 +3,17 @@ class_name TextureAtlasLayer
 extends Resource
 
 
-@export var name: StringName = &""
+@export var name := &""
 @export var frames: Array[TextureAtlasFrame] = []
 
 # Frame index in range -> index of frames array
 @export var frame_indexes: Dictionary[int, int] = {}
 
 @export var frame_range: Array = []
-@export var start_index: int = 0
-@export var duration: int = 0
-@export var clipping: bool = false
-@export var clipped_by: String = ""
+@export var start_index := 0
+@export var duration := 0
+@export var clipping := false
+@export var clipped_by := ""
 
 
 static func parse(layer: Dictionary, optimized: bool) -> TextureAtlasLayer:
