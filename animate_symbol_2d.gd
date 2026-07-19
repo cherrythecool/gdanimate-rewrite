@@ -113,7 +113,8 @@ var _current_library: AnimateSymbolLibrary:
 var _frame_progress: float = 0.0
 var _frame_internal: int = 0:
 	set(value):
-		value = clampi(value, 0, maxi(get_animation_length() - 1, 0))
+		if is_instance_valid(_current_library):
+			value = clampi(value, 0, maxi(get_animation_length() - 1, 0))
 
 		if _frame_internal != value:
 			_frame_internal = value

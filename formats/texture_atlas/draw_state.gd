@@ -6,6 +6,8 @@ extends RefCounted
 var item_pool: Array[RID]
 var item_pool_index: int = 0
 
+var texture_filter: RenderingServer.CanvasItemTextureFilter
+
 var materials: Dictionary[StringName, Material] = {}
 
 var backbuffer_transform := Transform2D.IDENTITY
@@ -17,9 +19,8 @@ var item_blend_mode := TextureAtlas.BlendMode.NORMAL
 var color_matrix := TextureAtlasColorMatrix.new()
 var item_color_matrix := color_matrix
 
-var masking := false
-var item_masking := false
-
+var masked := false
+var item_masked := false
 var masked_items: Array[RID]
 
 var masker := false
@@ -87,8 +88,17 @@ func get_next_item() -> RID:
 	else:
 		rid = item_pool[item_pool_index]
 
-	if masking:
+	if masked:
 		masked_items.push_back(rid)
+
+	RenderingServer.canvas_item_set_default_texture_filter(
+		rid,
+		texture_filter,
+	)
+	RenderingServer.canvas_item_set_default_texture_repeat(
+		rid,
+		RenderingServer.CANVAS_ITEM_TEXTURE_REPEAT_DISABLED,
+	)
 
 	return rid
 

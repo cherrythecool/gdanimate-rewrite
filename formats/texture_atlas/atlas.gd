@@ -247,6 +247,7 @@ func draw_2d(target: AnimateSymbol2D) -> void:
 			var state := TextureAtlasDrawState.new()
 			state.item_pool = target._canvas_item_pool
 			state.materials = _internal_materials.duplicate()
+			state.texture_filter = target.texture_filter as RenderingServer.CanvasItemTextureFilter
 
 			if is_instance_valid(target.material):
 				state.materials[&"default"] = target.material
@@ -267,6 +268,16 @@ func draw_2d(target: AnimateSymbol2D) -> void:
 			)
 
 			RenderingServer.canvas_item_set_transform(root_item, transform)
+			RenderingServer.canvas_item_set_default_texture_filter(
+				root_item,
+				state.texture_filter,
+			)
+
+			RenderingServer.canvas_item_set_default_texture_repeat(
+				root_item,
+				RenderingServer.CANVAS_ITEM_TEXTURE_REPEAT_DISABLED,
+			)
+
 			state.apply_material_to_current()
 
 			draw_2d_full(
@@ -329,27 +340,52 @@ func draw_2d_full(
 		if not layer.frame_indexes.has(frame):
 			continue
 
+		if not layer.clipped_by.is_empty():
+			state.masked = true
+
+		if layer.clipping:
+			state.masker = true
+
 		var layer_frame := layer.frames[layer.frame_indexes[frame]]
 		var current_item: RID
 		for element: TextureAtlasDrawable in layer_frame.elements:
 			current_item = state.get_current_item()
 
-			if current_item != target:
-				RenderingServer.canvas_item_set_parent(current_item, target)
-
+			state.blend_mode = start_blend
 			state.color_matrix = start_color_matrix
 			state.local_transform = start_transform
 
 			if element is TextureAtlasSprite:
 				if (
+					state.item_masker != state.masker or
+					state.item_masked != state.masked or
 					state.item_blend_mode != state.blend_mode or
 					state.item_color_matrix.color_offsets != state.color_matrix.color_offsets
 				):
 					current_item = state.get_next_item()
-					state.item_color_matrix = state.color_matrix
+					RenderingServer.canvas_item_set_parent(current_item, target)
+
+					state.item_masker = state.masker
+					state.item_masked = state.masked
 					state.item_blend_mode = state.blend_mode
+					state.item_color_matrix = state.color_matrix
 					state.apply_material_to_current()
 					state.color_matrix.apply_to_item(current_item)
+
+					if state.masker:
+						for rid: RID in state.masked_items:
+							RenderingServer.canvas_item_set_parent(rid, current_item)
+
+						RenderingServer.canvas_item_set_material(current_item, RID())
+						RenderingServer.canvas_item_set_canvas_group_mode(
+							current_item,
+							RenderingServer.CANVAS_GROUP_MODE_CLIP_ONLY,
+						)
+					else:
+						RenderingServer.canvas_item_set_canvas_group_mode(
+							current_item,
+							RenderingServer.CANVAS_GROUP_MODE_DISABLED,
+						)
 
 					if state.blend_needs_backbuffer(state.blend_mode):
 						# TODO: calculate bounding boxes for optimized copying
@@ -395,6 +431,13 @@ func draw_2d_full(
 					state,
 					target,
 				)
+
+		if not layer.clipped_by.is_empty():
+			state.masked = false
+
+		if layer.clipping:
+			state.masked_items.clear()
+			state.masker = false
 
 
 func get_framerate() -> float:
